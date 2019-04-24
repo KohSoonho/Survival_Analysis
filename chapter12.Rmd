@@ -1,0 +1,37 @@
+---
+title: 'Chapter12: Additional Topics'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+library(survminer)
+library(broom)
+library(asaur)
+```
+
+### Using Piecewise Constant Hazards to Model Survival Data      
+The exponential distribution, with its constant hazard assumption, is too inflexible to be useful in most lifetime data applications.     
+**The piecewise exponential model**, by contrast, is a generalization of the exponential which can offer considerable flexibility for modeling.     
+<br />
+In Chapter 2 (Exercise 2.5) we saw a simple piecewise exponential model with two “pieces”. That is, the survival time axis was divided into two intervals, with a constant hazard on each interval.      
+Here we show how to generalize this model to accommodate multiple intervals on which the hazard is constant. An important feature of the piecewise exponential is that the likelihood is equivalent to a Poisson likelihood.    
+Thus, we can use a Poisson model-fitting function in R to find maximum likelihood estimates of the hazard function and of parameters of a proportional hazards model.     
+
+The connection between the piecewise exponential and Poisson models is most easily seen with a single piece, which is just an ordinary exponential distribution with rate parameter $\lambda$. The likelihood, as we have seen in Chapter 2, is as follows,    
+
+$$
+L_e(\lambda)=\displaystyle \prod_{i=1}^{n}h(t_i)^{\delta_i}S(t_i)=\prod_{i=1}^{n}\lambda^{\delta_i}
+e^{-\lambda t_i}=\lambda^{d}e^{-\lambda V}
+$$
+
+where, as usual, $t_i$ denotes the failure time of the $i$th subject, and $\delta_i$ is that subject’s censoring indicator. As in Chapter 2, $d = \sum \delta_i$ denotes the number of deaths and $V = \sum t_i$ denotes the total time at risk.     
+If time is in years, $V$ is the number of person-years at risk, for example. As we saw in Chapter 2, the maximum likelihood estimate is given by $\hat{\lambda}=d/V$, and we may interpret this estimate as the “crude” event rate per person-year (or, more generally, per time unit).     
+Now let us suppose that the random variable $d$ has a Poisson distribution with mean $\mu$ and that $\mu=V \lambda$. In this context, $\lambda$ is a rate parameter. Again, if time is in years, then $\lambda$ would denote the death rate per year. The likelihood function for a Poisson distribution is     
+$$
+L_{p}(\lambda)=(\lambda V)^{d}
+$$
+
+

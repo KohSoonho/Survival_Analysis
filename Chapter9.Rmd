@@ -1,0 +1,738 @@
+---
+title: "Chapter9: Multiple Survival Outcomes and Competing Risks"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+library(survminer)
+library(broom)
+library(asaur)
+```
+
+### Introduction    
+
+Until now the type of survival data we have considered has, as an endpoint, a single cause of death, and the survival times of each case have been assumed to be independent. Methods for analyzing such survival data will not be sufficient if cases are not independent or if the event is something that can occur repeatedly.    
+<br />
+
+An example of the first type would be clustered data.   
+For instance, one might be interested in survival times of individuals that are in the same family or in the same unit, such as a town or school. In this case, genetic or environmental factors mean that survival times within a cluster are more similar to each other than to those from other clusters, so that the independence assumption no longer holds.   
+<br />
+
+In the second case, if the event of interest is, for example, the occurrence of a seizure, the event may repeat indefinitely. Then we would have multiple times per person. Special methods are needed to handle these types of data structures, which we shall discuss in Sect. 9.1. A different situation arises when only the first of several outcomes is observable, a topic we will take up in Sect. 9.2.   
+
+### Clustered survival times and frailty models      
+*Example 1*: Struewing et al., in the Washington Ashkenazi study, examined the effect of mutations of the BRCA gene on risk of breast cancer in an Ashkenazi Jewish population.   
+The original data set consisted of a set of probands who were volunteers of Ashkenazi ancestry. Each proband was genotyped for the BRCA breast cancer gene to determine if she was a mutation carrier. The proband was also interviewed by the investigators to determine if she had any female first-degree relatives, and the relatives age at the time she developed breast cancer or current age if that relative had never been diagnosed with breast cancer.     
+A subset of this data set was constructed to use as an example. This subset consists of 1,960 families with two or more female relatives; for those with three or more female relatives, two were selected at random.   
+<br />
+
+This data set, `ashkenazi`, is in the `asaur` package.    
+The subset was constructed so that it contains information on the age of onset of breast cancer (or current age for women without breast cancer) for the two female relatives, the BRCA mutation status of the proband, and the age of onset (or current age) of two female relatives.   
+Following is a sample (sets 1, 9, and 94) of the family sets. 
+
+```{r}
+ashkenazi %>% 
+  filter(famID %in% c(1, 9, 94))
+```
+
+Family #1 consists of two first degree female relatives (most likely a mother and daughter), ages 73 and 40. Neither of them has ever had breast cancer, nor does their proband have a BRCA mutation.   
+In Family #9, one relative was 89 with no history of breast cancer, and the other relative had breast cancer at age 60. Their proband was not a BRCA mutation carrier.    
+In Family #94 one relative had breast cancer at age 44 and the other, a sister, was 45 and had never had breast cancer. The proband for these sisters was a mutation carrier.   
+Note that, since the variable “mutant” refers to a common proband for each family, both entries must either be 0 or 1, according to whether the proband was not a carrier (mutant = 0) or was a carrier (mutant = 1).   
+The survival variable is age of onset (or age at interview for those with no history of breast cancer), the censoring variable is “brcancer” (1 if a breast cancer case, 0 if not), and the covariate of interest is “mutant”, whether or not the relative’s proband was a BRCA mutation carrier.    
+A concern is that family members may share environmental and genetic characteristics (other than BRCA mutation status), so it may not be appropriate to treat them as independent.    
+<br />
+
+*Example 2*: The Diabetic Retinopathy Study was a randomized clinical trial conducted to evaluate the effect of laser photo-coagulation versus control on time to onset of blindness. For each patient one eye was randomly assigned to receive the laser treatment and the other was untreated.    
+The time of blindness was defined as the first occurrence of visual acuity less than 5/100 at two consecutive examinations; any eye that did not meet this criterion was treated as a censored observation. A secondary objective was to determine if diabetes type (early or late onset) affected time to blindness, and whether this influenced the effectiveness of the laser treatment.    
+<br />
+
+The data are in `diabetes` in the `timereg` package, which must be downloaded and installed. Here are the first few rows:
+
+```{r}
+library(timereg)
+data("diabetes")
+tbl_diabetes <- as_data_frame(diabetes)
+```
+
+```{r}
+head(tbl_diabetes)
+```
+
+For example, Patient #5 was observed for 46 months, and didn’t lose sight in either eye.   
+Patient #14 lost sight in the untreated eye (treat = 0 and status = 1) at 31 months, but still had sight in the treated eye (treat = 1 and status = 0) at 42 months.   
+And Patient #16 had not lost sight in either eye at 42 months.   
+<br />
+
+#### marginal survival models    
+In the marginal approach, the proportional hazards assumption is presumed to hold for all subjects, despite the structure in the data due to clusters. With this approach, the parameter estimates are obtained from a Cox proportional hazards model as described in earlier chapters, ignoring the cluster structure. Where the clusters come into play is in computing standard errors for the parameter estimates. This model is described in detail in the pair of articles Wei, Lin, and Weissfeld and Lin and Wei.     
+<br />
+
+Suppose first that there is only one covariate, and its estimate is $\hat{\beta}$. We shall denote the estimate of its variance (from the Cox model, ignoring the clustering) by $\hat{V}$, and the standard error of the estimate is then $\hat{V}^{1/2} = \sqrt{\hat{V}}$. This is the estimate of the standard error assuming that all subjects are independent.     
+To obtain a correction to this variance that accounts for the clustering structure, we need to define a score residual for subject $j$ in cluster $i$:       
+
+$$
+s_{ij} = \delta_{ij}[z_{ij} - \bar{z}(t_{ij})]-\displaystyle \sum_{t_u \leq t_{ij}}[z_{ij} - \bar{z}(t_{ij})]
+e^{z_i\beta}[\hat{H_0}(t_u) - \hat{H_0}(t_{u-1})]
+$$
+Note that the first part of this residual is the Schoenfeld residual given in Chapter 7. We formulate a quantity $C$ defined by    
+
+$$
+C = \displaystyle \sum^{G}_{i = 1} \sum^{n_i}_{j = 1} \sum^{n_i}_{m = 1}s_{ij}s_{im}
+$$
+We define a cluster-adjusted variance by $V^{*} = \hat{V}^{2}$. $C$ and a cluster-adjusted standard error for $\hat{\beta}$ by $\sqrt{V^{*}}$.     
+If there are $q$ covariates, then $\hat{\beta}$ is a vector, and the covariance matrix for $\hat{\beta}$ from the Cox model is given by $V$, and the standard errors (based on the standard Cox model assuming independent subjects) is the square root of the diagonal elements of $V$, i.e. se($\hat{\beta}$) = $[diag(V)]^{1/2}$.    
+The score residuals $s_{ij}$ are $1 \times q$ matrices, the quantity $C$ is now a $q$ by $q$ matrix given by $C = \sum^{G}_{i = 1}\sum^{n_i}_{j = 1}\sum^{n_i}_{m = 1} s_{ij}'s_{im}$, and the cluster-adjusted covariance matrix is given by $V^{*} = \hat{V}C\hat{V}$. Since the empirical covariance matrix $C$ is sandwiched between two copies of $\hat{V}$ , this estimate is often referred to as the “sandwich” estimator. The adjusted standard errors of the parameter estimate $\hat{\beta}$ is given by se($\hat{\beta}$) = $[diag(V)]^{1/2}$. Summaries of the theory may be found in Klein and Moeschberger and in Hosmer, Lemeshow and May.     
+<br />
+
+#### frailty survival models    
+Let us begin with a review of how we set up a likelihood function for survival data, and we will write it in a form that allows us to generalize to clustered survival data. Suppose for now that we have independent survival data, with the $i$th observation given by $(t_i, \delta_i, z_i)$.    
+The likelihood function may be written as follows, using the fact that $h(t) = f(t)/S(t)$ and the proportional hazards assumption $h(t, \beta) = h_0(t)e^{z_i\beta}$;     
+
+$$
+L(\beta; z_i) = \displaystyle \prod^{n}_{i = 1}f(t_i, \beta)^{\delta_i}S(t_i,\beta)^{1 - \delta_i}
+= \prod^{n}_{i = 1}h(t_i,\beta)^{\delta_i}S(t_i, \beta)
+$$
+
+This may be re-expressed as   
+
+$$
+L(\beta;z_i) = \displaystyle \prod^{n}_{i = 1} [h_0(t_i)e^{z_i\beta}]^{\delta_i} \cdot 
+e^{-H_0(t_i)e^{z_i\beta}}
+$$
+
+where $H_0(t_i) = -\int^{t_i}_{0} h_0(v)dv$ is the baseline cumulative hazard.   
+<br />
+
+Now suppose that the survival times are organized into clusters; common examples include families, schools, or other institutions. We suppose that subjects in the same cluster are more alike in their survival times than are subjects from different clusters.   
+One way to accommodate such structure in the data is to assign each individual in a cluster a common factor known as a *frailty* or, alternatively, as a *random effect*.    
+We denote the frailty for all individuals in the $i$th cluster by $\omega_i$. Then we may express the hazard function for the $j$th subject in the $i$th cluster as follows:   
+
+$$
+h_{ij}(t_{ij}) = h_0(t_{ij}) \cdot \omega_i e^{z_{ij}\beta}
+$$
+
+The $\omega_i$ vary from one cluster to another, and a common model that governs this variability is a gamma distribution,   
+
+$$
+g(\omega, \theta) = \frac{\omega^{\frac{1}{\theta} - 1}e^{-\frac{\omega}{\theta}}}
+{\Gamma(\frac{1}{\theta})\theta^{\frac{1}{\theta}}}
+$$
+
+Suppose that, in addition to the survival and censoring variables, we could somehow observe the frailties $\omega_i$. Then the joint likelihood for the $j$th subject in the $i$th cluster would be     
+
+$$
+L(\beta, \theta; \omega_i, t_{ij}, \delta_{ij}, z_{ij}) = g(\omega_i, \theta) \cdot 
+[h_0(t_{ij})\omega_i e^{z_{ij}\beta}]^{\delta_{ij}} \cdot 
+e^{-H_0(t_{ij})\omega_i e^{z_{ij}\beta}}
+$$
+
+and the full likelihood would be      
+
+$$
+L(\beta, \theta) = \displaystyle \prod^{G}_{i = 1} \prod^{n_i}_{j = 1} 
+L_{ij}(\beta, \theta; \omega_i, t_{ij}, \delta_{ij}, z_{ij})
+$$
+
+Still assuming that we could observe the frailties $\omega_i$, we could obtain maximum likelihood estimates for $\beta$ and $\theta$ by numerically maximizing this function.  
+In actuality, however, the frailties are latent variables, that is, variables that we presume to exist but which we cannot directly observe.  
+Thus, to obtain estimates of $\beta$ and $\theta$ we need to use a multistage procedure called the EM (expectation-maximization) algorithm. This algorithm alternates between finding expected values for the frailties based on current estimates of $\beta$ and $\theta$ and using these expected values to find updated estimates for $\beta$ and $\theta$.   
+The algorithm alternates between these two steps until convergence. If we use a parametric distribution for $f(t, \beta)$, setting up the EM algorithm is fairly direct. Generalizing this to the Cox proportional hazards model is more complex, in part because we also have to obtain updated estimates for the baseline hazard at each step.    
+See Klein and Moeschberger and Therneau and Grambsch for details.   
+
+An alternative to using the gamma distribution to model the frailties is to write $\omega_i = e^{\sigma u_i}$, where $u_i$ has a standard normal distribution. This alternative model puts the random effects and fixed effects on the same level,   
+
+$$
+h_{ij}(t_{ij}) = h_0(t_{ij}) \cdot e^{z_{ij}\beta + u_i \sigma}
+$$
+The EM algorithm for estimation of $\beta$ and $\sigma$􏰉 proceeds as outlined above.    
+<br />
+
+#### Accounting for Family-Based Clusters in the “ashkenazi” Data   
+Let us first consider the “ashkenazi” data in the “asaur” package.   
+Here we fit a standard Cox proportional hazards model to predict the age of onset of breast cancer depending on the carrier status of the proband:   
+
+```{r}
+# view "ashkenazi" df
+head(ashkenazi)
+
+# fit a standard cox
+normal_cox_ashkenazi <- coxph(Surv(age, brcancer) ~ mutant, data = ashkenazi)
+summary(normal_cox_ashkenazi)
+```
+
+The log partial likelihood from this model is obtained as follows:   
+
+```{r}
+normal_cox_ashkenazi$loglik
+```
+
+The first component is from the model with no covariates and the second from the model with “mutant” included as a predictor.   
+The likelihood ratio test statistic is twice the difference, $G^2 = 2(-3579.707 + -3566.745) = 25.924$.  
+This is compared to a chi-square distribution with 1 degree of freedom, resulting in a very small p-value, confirming the importance of including the mutational status of the proband in the model.    
+<br />
+
+To accommodate the clustering using the Lin-Wei method, we use the “cluster” term in the model specification, as follows:  
+
+```{r}
+# fitting Lin-Wei method
+cluster_cox_ashkenazi <- coxph(Surv(age, brcancer) ~ mutant + cluster(famID), data = ashkenazi)
+summary(cluster_cox_ashkenazi)
+```
+
+The parameter estimate and it’s standard error are the same as in the ordinary Cox model above.   
+Here, however, there is an additional estimate of the standard error, the “robust se”, that is computed using the Lin-Wei method.   
+This estimate is only slightly higher than the one from the standard Cox model, indicating that the effect of clustering within first-degree relatives is small. The p-value is higher, but still highly significant, indicating that having a first-degree relative who is a BRCA mutation carrier increases the hazard of developing breast cancer by a factor of 3.30.   
+<br />
+
+As an alternative, we may account for the clustering using a gamma frailty model as follows:    
+
+```{r}
+# fitting frailty model
+frailty_cox_ashkenazi <- coxph(Surv(age, brcancer) ~ mutant + frailty(famID), data = ashkenazi)
+summary(frailty_cox_ashkenazi)
+```
+
+Here we see that the coefficient for the “mutant” term is similar as before. The coxph function with the frailty option provides two estimates of the standard error.   
+The first, “se(coef)” is generally the preferred estimate, while the “se2” estimate is an alternative estimate based on a variation of the sandwich estimator.   
+By default “frailty” uses the gamma frailty distribution; to use a normally distributed frailty use “frailty(dist=‘normal’)”.    
+<br />
+
+A newer facility for fitting random effects frailty models, which supersedes the “frailty” option, is the `coxme` package, which must be separately downloaded and installed. It may be used as follows:     
+
+```{r}
+# load "coxme"
+library(coxme)
+
+# fitting random effects frailty models 
+coxme_cox_ashkenazi <- coxme(Surv(age, brcancer) ~ mutant + (1 | famID), data = ashkenazi)
+summary(coxme_cox_ashkenazi)
+```
+
+The model statement “ ~ mutant + (1 | famID)” states that we are fitting “mutant” as a fixed effect; the expression “(1 | famID)” indicates that family members, defined by the variable “famID” are nested within family.     
+In the output, "Iterations= 10 63" contains convergence information from the fitting process.   
+"Log-likelihood" contains values of the partial log likelihood. The first *(“NULL”)* value is the log partial likelihood from *the model with no covariates*, and is *identical to the null value from the Cox model given at the beginning of this subsection*; the second (“Integrated”) is from *the partial log-likelihood with the random effect terms integrated out*.   
+To find the statistical significance of including a random effect in the model, we compare the integrated log-likelihood value (􏰁3564.622) to the value given earlier for the maximum (partial) log likelihood for the ordinary Cox model with “mutant” in the model (􏰁3566.745).    
+Twice the difference is $G^2 = 2(-3564.622 + 3566.745) = 4.246$.   
+The p-value is thus 0.039, obtained as follows:    
+
+```{r}
+pchisq(4.246, 1, lower.tail = F)
+```
+
+The “Integrated loglik” chi-square statistic on “Integrated loglik”, 30.17, is twice the difference between the integrated and null values of the log-likelihood on "Log-likelihood". This is a combined test of the fixed effect “mutant” and the random effect, and is compared to a chi-square distribution with 2 degrees of freedom, yielding a highly significant p-value.    
+The fixed effect parameter estimates ("Fixed coefficients") give the coefficient estimate for “mutant”, the estimated risk ratio (3.44) for those with a mutation carrying relative compared to those without, and the Wald test p-value which, as we have seen, shows a highly significant association with risk of onset of breast cancer.      
+Finally, the variance of the random effect (0.35) and it’s square root, the standard deviation (0.59) are given in "Random effects; famID". Also shown are some additional terms, such as the fitted log-likelihood and the penalized log likelihood, that have more specialized uses.     
+<br />
+
+#### Accounting for Within-Person pairing of eye observations in the diabetes data   
+
+We shall examine the effect of treatment on time-to-blindness in patients with diabetic retinopathy, and also the interaction of the effect of treatment with age of onset (early or adult onset), as defined by the “adult” indicator.    
+The results, using the “coxme” function, are as follows:      
+
+```{r}
+coxme_cox_diabetes <- coxme(Surv(time, status) ~ treat + as.factor(adult) + 
+                            treat * as.factor(adult) + (1 | id), 
+                            data = tbl_diabetes)
+summary(coxme_cox_diabetes)
+```
+
+Clearly, treatment increases time to blindness ("Fixed coefficients; treat"), since the coefficient is negative (-0.5) with a p-value of 0.027. Those with adult-onset diabetes are at increased risk for early blindness ("Fixed coefficients; as.factor(adult)"), but treatment has a greater beneficial effect for those with adult-onset diabetes than it does for those with juvenile- onset diabetes ("Fixed coefficients; treat:as.factor(adult)"). Several researchers have reported similar results with this data.    
+<br />
+<br />
+
+### Cause-Specific Hazards
+Until now we have considered survival times with a single, well-defined outcome, such as death or some other event. In some applications, however, a patient may potentially experience multiple events, only the first-occurring of which can be observed.    
+For example, we may be interested in time from diagnosis with prostate cancer until death from that disease (Cause 1) or death from some other cause (Cause 2), but for a particular patient we can only observe the time to the first event.   
+Of course, as discussed in previous chapters, a patient may also be censored if he is still alive at the last follow-up time. If interest centers on a particular outcome, time to prostate cancer death, for example, a simplistic analysis method would be to treat death from other causes as a type of censoring.    
+This approach has the advantage that implementing it is straightforward using the survival analysis methods we have discussed in previous chapters.      
+However, *a key assumption about censoring is that it is independent of the event in question*.    
+In most competing risk applications, this assumption may be questionable, and in some cases may be quite unrealistic. Furthermore, it is not possible to test the independence assumption using only the competing risks data.    
+The only hope of evaluating the accuracy of the assumption would be to examine other data or appeal to theories concerning the etiology of the various death causes. Consequently, interpretation of survival analyses in the presence of competing risks will always be subject to at least some ambiguity due to uncertainty about the degree of dependence among the competing outcomes.    
+<br />
+
+#### Kaplan-Meier estimation with competing risks    
+We begin with estimating a survival curve in a single sample in the presence of competing events.    
+The simplest method, as we have noted above, would be to in turn select each as the primary event, and to treat the other as a censoring event. However, to obtain unbiased estimates of survival curves, this simplistic method would require the usually false assumption that the two causes of death are independent.    
+We may illustrate this problem be considering prostate cancer patients ages 80 and over diagnosed with stage T2 poorly differentiated prostate cancer. We define indicator variables “status.other” and “status.prost”, and then select the subset “prostateSurvival.highrisk” as follows, using the “prostate survival” data from Example 1.4 in Chap. 1:   
+
+```{r}
+prost_surv_high_risk <- prostateSurvival %>% 
+  as_data_frame() %>% 
+  # Let us consider two analyses
+  # one with death due to other causes (status = 2) as censored (status_other)
+  # the other with death due to prostate cancer (status = 1) as censored (status_prost) 
+  mutate(status_prost = ifelse(status == 1, 1, 0),        # event by prostate cancer
+         status_other = ifelse(status == 2, 1, 0)) %>%    # event by other reasons
+  filter(grade == "poor", stage == "T2", ageGroup == "80+")  
+
+head(prost_surv_high_risk)
+```
+
+The Kaplan-Meier estimates of survival defined as time to death from prostate cancer (with other causes of death considered as censored) is as follows:      
+
+```{r}
+km_prost <- survfit(Surv(survTime, status_prost) ~ 1, data = prost_surv_high_risk)
+```
+
+Similarly, to estimate survival for time to death from other causes, we have     
+
+```{r}
+km_other <- survfit(Surv(survTime, status_other) ~ 1, data = prost_surv_high_risk)
+```
+
+To illustrate the problem with this analysis, let us first extract the Kaplan-Meier survival curve for death from other causes:   
+
+```{r}
+km_surv_other <- km_other$surv
+km_time_other <- km_other$time / 12
+```
+
+Now let’s extract the corresponding survival curve for death from prostate cancer, and then express it as a cumulative incidence function, which is one minus the survival curve (also known as the cumulative distribution function):      
+
+```{r}
+km_surv_prost <- km_prost$surv
+km_cumDis_prost <- 1 - km_surv_prost
+```
+
+Now we may plot both on the same graph (I hide the result of plot)    
+
+```{r, fig.show = "hide"}
+plot(km_cumDis_prost ~ km_time_other, type = "s", ylim = c(0, 1), lwd = 2, 
+     xlab = "Years from prostate cancer diagnosis", col = "blue")
+lines(km_surv_other ~ km_time_other, type = "s", col = "green", lwd = 2)
+```
+
+
+![](Fig9.1.png)
+
+The result, shown in above Fig, shows that the two curves cross. At 10 years, for example, the probability of dying of prostate cancer is 0.46, and of other causes it is 0.88.     
+The fact that the sum of these two probabilities exceeds one demonstrates that these estimates, viewed as probabilities that a particular patient would die of prostate cancer or something else, are severely biased.   
+One might be tempted to view these curves as estimates of the probability of death from one cause if the other cause were eliminated as a possibility, but such an exercise would require the assumption that the causes be independent. This assumption cannot be tested from the data, and in any case the meaning of the resulting estimates would be purely hypothetical.    
+
+#### Cause-specific hazards and cumulative incidence functions     
+
+To develop a formal model to accommodate competing risks, let us suppose that there are ***K*** distinct causes of death, which we may diagram as below;   
+
+![](Fig9.2.png)
+
+The distinguishing feature of this competing causes framework is that each subject can experience at most one of the ***K*** causes of death; the times that the subject would have experienced the remaining causes is thus unknown.     
+This framework can also accommodate applications with non-fatal events, as long as all of the events are mutually exclusive. For example, in individuals infected with HIV, one may be interested in the time to development of symptoms of AIDS, or the appearance of a condition called syncytium inducing (SI) HIV phenotype.    
+With competing risks, it is helpful to define, for each cause of interest, a function known as the cumulative risk function, also called the sub-distribution function. This is the cumulative probability that an individual dies from that particular cause by time $t$, and is given by       
+
+$$
+F_j(t) = Pr(T \leq t, \ C = j) = \displaystyle \int^{t}_{0} h_j(u)S(u)du
+$$
+
+This function is similar to the cumulative distribution function in that it is always increasing (or more precisely, non-decreasing).    
+But unlike a cumulative distribution function, it goes, in the limit, to the probability of death from that particular cause, rather than to 1. Formally, we have     
+
+$$
+F_j(\infty) = Pr(C = j)
+$$
+
+The cause-specific hazard is defined in a manner similar to the hazard function from Chap 2, but now it is the probability that a specific event occurs at time $t$ given that the individual survives that long:     
+
+$$
+h_j(t) = \lim_{\delta \to 0} (\frac{Pr(t < T < t + \delta, \ C = j \ | \ T > t)}{\delta})
+$$
+
+If we add up all of the cause-specific hazards at a particular time, we get the hazard function of Chap 2.    
+
+$$
+h(t) = \displaystyle \sum^{K}_{j = 1}h_j(t)
+$$
+
+That is, the risk of death at a particular time is the sum of the risks of all of the specific causes of death at that time.    
+<br />
+
+Suppose now that we have $D$ distinct ordered failure times $t_1, t_2, \cdots, t_D$. We may estimate the hazard at the $i$th time $t_i$ using $\hat{h}(t_i) = d_i / n_i$, as we have seen in previous chapters.    
+The cause-specific hazard for the $k$th hazard may be written in a similar form as $\hat{h_k}(t_i) = d_{ik} / n_i$.   
+This is just the number of events of type $k$ at that time divided by the number at risk at that time. The sum over all cause-specific hazards is the overall hazard, $\hat{h}(t_i) = (\sum_k d_{ik}) / n_i$.    
+The probability of failure from any cause at time $t_i$ is the product of $\hat{S}(t_{i - 1})$, the probability of being alive just before $t_i$, and $\hat{h}(t_i)$, the risk of dying at $t_i$.   
+Similarly, the probability of failure due to cause k at that time is $\hat{S}(t_{i - 1})\hat{h}(t_i)$.    
+The sub-distribution function, or cumulative incidence function, is the probability of dying of cause $k$ at time $t_i$. This is the sum of all probabilities of dying of this cause up to time $t_i$ and is given by     
+
+$$
+\hat{F}_k(t) = \displaystyle \sum_{t_i \le t} \hat{S}(t_{i - 1})\hat{h}(t_i) 
+$$
+
+That is, once we have an estimate of the overall survival function $\hat{S}(t_{i})$, we can obtain the cumulative incidence function for a particular cause by summing over the product of this and the cause-specific hazards for that cause.    
+<br />
+
+To illustrate this methodology, let us consider a simple hypothetical data set with six observations and two possible causes of death, displayed below.     
+
+![](Fig9.3.png)
+
+Denoting the event types with the numbers 1 and 2, and the censored observations with the number 0, we may enter the data into R as follows:    
+
+```{r}
+example <- data_frame(time = c(2, 7, 5, 3, 4, 6), 
+                      status = c(1, 2, 1, 2, 0, 0))
+example
+```
+
+We first compute the overall survival distribution,    
+
+```{r}
+# fit cox model by any couse
+temp <- survfit(Surv(time, status != 0) ~ 1, data = example)
+
+# overall survival distribution
+temp$surv
+```
+
+We compute the cumulative incidence functions as in the following table:    
+
+```{r}
+example %>% 
+  arrange(time) %>% 
+  mutate(n_risk = seq(6, 1, by = -1)) %>% 
+  filter(status >= 1) %>% 
+  mutate(n_event_1 = ifelse(status == 1, 1, 0), 
+         n_event_2 = ifelse(status == 2, 1, 0), 
+         n_event_any = 1, 
+         survival = round(unique(temp$surv), 3), 
+         h_1 = n_event_1 / n_risk, 
+         h_2 = n_event_2 / n_risk, 
+         CI_1 = cumsum(lag(unique(temp$surv), default = 1) * h_1), 
+         CI_2 = cumsum(lag(unique(temp$surv), default = 1) * h_2)) %>% 
+  select(-status) 
+```
+
+For example, the probability of event type 1 at the first time ($t = 2$) is given by $1.000 \times \frac{1}{6} = 0.167$. This is also the estimate of the cumulative incidence function at this time.      
+The probability of an event of this type at time $t = 5$ is $0.667 \times \frac{1}{3} = 0.222$. Then the cumulative incidence for this event at time $t = 5$ is $0.167 + 0.222 = 0.389$.    
+<br />
+
+These results may be more easily obtained using the `Cuminc` function in the `mstate` R package      
+
+```{r}
+library(mstate)
+(ci <- Cuminc(time = example$time, status = example$status))
+```
+
+The standard errors for the survival curve are computed using Greenwood’s formula as discussed in Chap 3.   
+The standard errors for the cumulative incidence functions are computed in an analogous manner; see Putter et al. for details.     
+<br />
+
+#### Cumulative incidence functions for prostate cancer data     
+Returning to the prostate cancer example.     
+
+```{r}
+# glimpse prostate cancer example
+head(prost_surv_high_risk)
+```
+
+
+We may now estimate the competing risks cumulative incidence functions as follows:      
+
+```{r}
+comp_risk_prost <- survfit(Surv(survTime, status, type = "mstate") ~ 1, 
+                           data = prost_surv_high_risk)
+```
+
+We may plot the cumulative incidence function for death from prostate cancer, and for death from other causes in solid green and blue, respectively, and the previous estimates with thin lines of the same (but lighter) colors, (I hide the result of plot)          
+
+```{r, fig.show = "hide"}
+# comp_risk_prost$pstate[, 1] -> event by prostate cancer
+# comp_risk_prost$pstate[, 2] -> event by other causes
+tt <- comp_risk_prost$time / 12
+
+# 1 - cumulative incidence function for other causes (green)
+plot((1 - comp_risk_prost$pstate[, 2]) ~ tt, type = "s", ylim = c(0, 1), 
+     lwd = 2, col = "green", xlab = "Time in years", ylab = "Survival probability")
+
+# cumulative incidence function for prostate cancer (blue)
+lines(comp_risk_prost$pstate[, 1] ~ tt, type = "s", lwd = 2, col = "blue")
+
+# previous estimate (competitive event is thought as censor)
+lines(km_surv_other ~ km_time_other, type = "s", col = "lightgreen", lwd = 1)
+lines(km_cumDis_prost ~ km_time_other, type = "s", col = "lightblue", lwd = 1)
+```
+
+![](Fig9.4.png)
+
+Above Fig, analogous to one presented by Putter et al. for a different data set, clearly illustrates the value of displaying competing risks cumulative incidence functions.     
+These curves represent estimates of the actual probabilities that a patient will die of a particular cause, rather than hypothetical probabilities that he would die of one cause in the absence of the other.      
+
+A common way to display competing risk cumulative incidence curves is via a stacked plot, as shown in below.    
+
+```{r}
+# cumulative incidence function for other causes (green)
+plot(comp_risk_prost$pstate[, 1] + comp_risk_prost$pstate[, 2]  ~ tt, type = "s", ylim = c(0, 1), 
+     lwd = 2, col = "green", xlab = "Time in years", ylab = "Survival probability")
+
+# cumulative incidence function for prostate cancer (blue)
+lines(comp_risk_prost$pstate[, 1] ~ tt, type = "s", lwd = 2, col = "blue")
+```
+
+The lower, blue curve represents the cumulative probability of death from prostate cancer, and the difference between the blue and upper, green curve represents the probability of death from other causes. The sum of the two probabilities of death, i.e. the upper, green curve, represents the cumulative probability of death from any cause, and is equal to one minus the Kaplan-Meier survival curve for death from any cause.       
+<br />
+
+#### Regression methods for cause-specific hazards   
+When there is a single outcome of interest, the Cox proportional hazards model provides an elegant method for accommodating covariate information.     
+However, modeling covariate information for competing risks data presents special challenges, since it is difficult to define precisely the hazard function on which the covariates should operate.    
+<br />
+
+The first method we will discuss, discussed in detail by Putter et al. and de Wreede, Fiocco, and Geskus, is the most direct.    
+We will illustrate using the prostate cancer data, this time restricting our attention (for now) to patients with stage T2 prostate cancer. Essentially, we will study the effects of the remaining covariates (grade and age) on prostate cancer death, treating other causes of death as censoring indicators, and vice versa for the effects of the covariates on other causes of death. We set up the data as follows:    
+
+```{r}
+# limit patients with stage T2
+prost_T2 <- prostateSurvival %>% 
+  as_data_frame() %>% 
+  filter(stage == "T2") %>% 
+  mutate(status_other = ifelse(status == 2, 1, 0), 
+         status_prost = ifelse(status == 1, 1, 0))
+
+head(prost_T2)
+```
+
+We then fit a standard Cox model for prostate cancer death as follows:   
+
+```{r}
+# "status == 1" is event caused by prostate cancer 
+km_prost_T2 <- coxph(Surv(survTime, status == 1) ~ grade + ageGroup, data = prost_T2)
+summary(km_prost_T2)
+```
+
+These results show that patients having poorly differentiated disease (grade = poor) have much worse prognosis than do patients with moderately differentiated disease (the reference group here), with a log-hazard ratio of 1.2199.      
+These results also show that the hazard of dying from prostate cancer increases with increasing age of diagnosis (the reference is the youngest age group, 65–69).      
+<br />
+
+Considering death from other causes as the event of interest, we have     
+
+```{r}
+# "status == 2" is event caused by other
+km_prost_T2_other <- coxph(Surv(survTime, status == 2) ~ grade + ageGroup, data = prost_T2)
+summary(km_prost_T2_other)
+```
+
+Taken at face value, these results indicate that patients with poorly differentiated cancer have a higher risk of death from non-prostate-cancer related disease than do those with moderately differentiated disease.    
+While the log hazard ratio is much smaller than with prostate cancer death as the outcome (0.28104 vs. 1.2199), one might expect that cancer grade wouldn’t have any effect on death from non-prostate-cancer causes.     
+These hazard ratios refer to hazard functions for death from prostate cancer and for death from other causes, and these are assumed to be operating independently.     
+<br />
+
+As we have discussed previously, these assumptions are highly suspect, and it is unclear to what extent the hazard functions that have been estimated correspond to actual (and unobservable) hazards.     
+To address this issue, Fine and Gray developed an alternative method for modeling covariate data with competing risks. Instead of defining the effects of covariates on the cause-specific hazards, they define a **sub-distribution hazard**      
+
+$$
+\bar{h_k}(t) = \lim_{\delta \to 0} \frac{pr(t < T_k < t + \delta \ | \  E)}{\delta}
+$$
+
+where the conditional event is given by   
+
+$$
+E = \{\{T_k > t\} \ or \ \{T_{k'} \leq t \ and \ k' \neq k \} \}
+$$
+
+That is, the sub-distribution hazard for cause $k$, like the definition of the ordinary hazard function given in Chap 2, is essentially the probability that the failure time lies in a small interval at $t$ conditional on an event $E$, divided by the length of that small interval.    
+The difference is that, in addition to referring to the $k$th failure time, the conditioning set specifies not only that $T_k > t$ but also allows inclusion of events other than the $k$th event in question, in which case we must have $T_{k'} \leq t$.    
+Thus, when computing these sub-distribution hazards, the risk set includes not only those currently alive and at risk for the $k$th event type, but also those who died earlier of other causes.    
+<br />
+
+![](Fig9.3.png)
+
+Consider, for example, for the data in `example`, the risk set for death from Cause #2 (triangles) at time $t = 7$ consists not only of Patient 2, the sole patient still alive at that time, but also Patients 1 and 3, since they died of Cause #1 (squares) earlier. Patient 4 is not in the risk set for death from Cause #2 at time $t = 7$ since that person died earlier from Cause #2, the same cause as Patient 2. Patients 5 and 6 also are not in the risk set at this time since they were censored. The sub-distribution hazard may be written in a more compact equivalent form as      
+
+$$
+\bar{h_k}(t) = - \frac{d \log(1 - F_k(t))}{dt}
+$$
+
+The **Fine and Gray method** uses these sub-distribution hazards for modeling the effects of covariates on a specific cause of death analogously to the Cox model,     
+
+$$
+\bar{h_k}(t; z, \beta) = \bar{h_{0k}}(t)e^{z\beta}
+$$
+
+That is, the sub-distribution hazard for a subject with covariates $z$ is proportional to a baseline sub-distribution function $\bar{h_{0k}}(t)$.      
+<br />
+
+The Fine and Gray methods are implemented in the `crr` function in the R package `cmprsk`. Before we can use the competing risk function `crr` in this package, we need to put the covariates into a model matrix using the `modelr::model_matrix` function. Using our attached data set “prost_T2”, we do this as follows:     
+
+```{r}
+library(modelr)
+
+# make model matrix
+cov_matrix <- model_matrix(data = prost_T2, km_prost_T2) 
+
+# show model matrix
+head(cov_matrix)
+```
+
+We obtain estimates for the prostate cancer as follows, dropping the intercept column of the covariate matrix:    
+
+```{r}
+library(cmprsk)
+
+# competing risks regression (prostate cancer)
+crr_prost <- crr(prost_T2$survTime, prost_T2$status, cov1 = cov_matrix, failcode = 1)
+summary(crr_prost)
+```
+
+The argument “failcode=1” refers to death from prostate cancer. For death from other causes, we use “failcode=2”,   
+
+```{r}
+# competing risks (other causes)
+crr_other <- crr(prost_T2$survTime, prost_T2$status, cov1 = cov_matrix, failcode = 2)
+summary(crr_other)
+```
+
+Again we see that poorly differentiated patients have higher risk for death from other causes (risk ratio = 0.126), but the effect size is smaller than we obtained from the Putter et al. method (risk ratio 0.281). The estimated effect on death from prostate cancer of having poorly differentiated disease is similar for both methods (risk ratio of 1.22 for Putter et al. vs. 1.132 for Fine and Gray).     
+<br />
+
+#### Comparing the effects of covariates on different causes of death    
+
+An advantage of the Putter et al. method over the Fine and Gray method is the ease with which we can compare the effects of a covariate on, for example, death from prostate cancer and death from other causes. For example, we know that the risk of both causes of death increase with age. But does the effect of age differ for these two causes?    
+<br />
+
+To answer this question, we first need to convert the data set from the original one where each patient has his own row in the data set into one where each patient’s data is split into separate rows, one for each cause of death. In the prostate cancer case, we need to create, for each patient, two rows, one for death from prostate cancer and one for death from other causes.    
+To simplify this process, we can use utilities in the `mstate` package. This package is capable of handling complex multistate survival models, but can also be used to set up competing risks as a special case. We begin by setting up a “transition” matrix using the function `trans.comprisk`,   
+
+```{r}
+(tmat <- trans.comprisk(2, names = c("event-free", "prostate", "other")))
+```
+
+The first argument is the number of specific outcomes, and the second argument (“names”) gives the name of the censored outcome and the two other outcomes. The resulting matrix states that a patient’s status can change from “event-free” to either “prostate” or “other”, these latter two being causes of death. The other entries of the matrix simply state that once a patient dies of one cause, they cannot change to another cause or return to the “event-free” status. Next, we use the function `msprep` to create the new data set, and examine the first few rows:      
+
+```{r}
+prostate_long <- msprep(time = cbind(NA, prost_T2$survTime, prost_T2$survTime), 
+                        status = cbind(NA, prost_T2$status_prost, prost_T2$status_other), 
+                        keep = data.frame(prost_T2$grade, prost_T2$ageGroup), 
+                        trans = tmat)
+
+head(prostate_long)
+```
+
+In this `msprep` function, the argument “time” consists of three columns, each corresponding the states defined by the “tmat” transition matrix.    
+The first “event- free” state is represented by a placeholder, “NA”; the second and third by the survival times for time to death from prostate cancer and from other causes.     
+In our data set, both are represented by the “survTime” vector. The two times are distinguished in the next argument, “status”. This also has three columns. The first is a placeholder, “NA” as before; the second is the censoring indicator for prostate cancer (“status.prost”), and the third is for other causes (“status.other”).    
+These latter two variables were defined earlier from the “status” column of the data frame “prost_T2”.     
+Finally, the transition matrix is defined by “trans = tmat”. Note that the variables “survTime”, “grade”, and “ageGroup” from the “prost_T2” file are available for use to us because we have previously attached it.      
+<br />
+
+The output file has twice as many rows as the original “prost_T2” file.      
+The first column, “id”, refers to the patient number in the original file; here, each is repeated twice. For our purposes, we can ignore the columns “from” and “to”.    
+The column “trans” will be important, because it contains an indicator of the cause of death; here “1” refers to death from prostate cancer and “2” refers to death from other causes.     
+The “Tstart” column contains all 0’s, since for our data, “time = 0” indicates the diagnosis with prostate cancer. We can ignore “Tstop”, and use the “time” column as the survival time and the “status” column as the censoring indicator.     
+Note that for each patient, there are two entries for “status”. Both can be 0, or one can be 1 and the other 0; they can’t both be 1 because each patient can die of only one cause, not both.     
+Finally, the last two columns are covariate columns we carried over from the original “prost_T2” data frame. Each original value is doubled, since each patient has one covariate value, regardless of their cause of death.    
+<br />
+
+We may obtain a summary of the numbers of events of each type as follows:     
+
+```{r}
+events(prostate_long)$Freq
+```
+
+These results indicate that there are 410 deaths due to prostate cancer, 1345 due to other causes, and 4165 censored observations, for 5920 total. (We may ignore the second two rows, which are relevant only for multistate models.)       
+<br />
+
+To show how to use our newly expanded data set, we can use it to reproduce our analysis from the previous section. To obtain these estimates of the effects of covariates on prostate-specific and other death causes, we use separate commands, one for “trans = 1” (prostate cancer) and the other for “trans = 2” (other causes of death), as follows:      
+
+```{r}
+# summary of cox model in subset of prostate cancer
+summary(coxph(Surv(time, status) ~ prost_T2.grade + prost_T2.ageGroup, 
+              data = prostate_long, 
+              subset = {trans == 1}))
+
+# summary of cox model in subset of other death cause
+summary(coxph(Surv(time, status) ~ prost_T2.grade + prost_T2.ageGroup, 
+              data = prostate_long, 
+              subset = {trans == 2}))
+```
+
+The results (not shown) are identical to what we obtained before.
+If we stratify on cause of death using “strata(trans)” we get estimates of the effect of the covariates on cause of death under the assumption that they affect both causes of death equally,          
+
+```{r}
+# summary of cox model in stratify on two causes
+summary(coxph(Surv(time, status) ~ prost_T2.grade + prost_T2.ageGroup + strata(trans), 
+              data = prostate_long))
+```
+
+In this example, this model wouldn’t be appropriate, since we would expect that cancer grade affects prostate cancer death differently than it does death from other causes. To test this formally, we fit the following model:         
+
+```{r}
+summary(coxph(Surv(time, status) ~ prost_T2.grade * factor(trans) + prost_T2.ageGroup + strata(trans), 
+              data = prostate_long))
+```
+
+The coefficient estimate 1.239 for “gradepoor” is the effect of grade on prostate cancer death, and is similar to the estimate we got earlier (1.220) for prostate cancer death alone.     
+Here however, we also have an estimate in the last row for the difference between the effect on prostate cancer death and death from other causes. This is the interaction between a grade of “poor” and cause “2” (other death).    
+The estimate, -0.963, which is highly statistically significant, represents the additional effect of poor grade on risk of death from other causes relative to its effect on prostate cancer death.     
+Specifically, the hazard of death from other causes is exp(-􏰁0.963) = 0.381 times the hazard of death from prostate cancer.    
+We have determined that having a poor grade of prostate cancer strongly affects the risk of dying from prostate cancer, and this effect is much stronger on the risk of death from prostate cancer than on the risk of death from other causes.     
+<br />
+
+We may next ask how increasing age affects the risk of dying from prostate cancer and of other causes. Unsurprisingly, the trend is clear in both cases, as we have seen above. But is the effect any different on these two causes? We can answer this by examining the interaction between age group and cause of death as follows:      
+
+```{r}
+summary(coxph(Surv(time, status) ~ (prost_T2.grade + prost_T2.ageGroup) * factor(trans) + 
+                prost_T2.ageGroup + strata(trans), data = prostate_long))
+```
+
+The results are in the last three rows of parameter estimates. None of these differences are statistically significant, so we conclude that there is no difference in the effect of age on the two death causes, after adjusting for grade.      
+<br />
+
+### Additional notes
+1. The `ashkenazi` data may be used to estimate the age-of-onset distribution of carriers and non-carriers of the BRCA mutation, but doing this properly is quite involved.    
+See for Struewing et al., Moore et al., and Chatterjee and Wacholder for details.       
+<br />
+
+1.  The `mstate` package is capable of modeling complex multistage survival models with alternative pathways to an endpoint.    
+The competing risks capabilities of this package are actually a special case of the more general multistage methods. See Putter et al. and the package documentation for details.           
+<br />
+<br />
+
+### Exercises    
+1. Using the `ashkenazi` data, use `coxme` to fit a random effects model without the `mutant` fixed effect term.      
+How does the estimate of the variance of the random effect from this model compare to that from the model that includes “mutant” as a fixed effect?      
+
+```{r}
+head(ashkenazi)
+coxme(Surv(age, brcancer) ~ (1 | famID), data = ashkenazi)
+coxme_cox_ashkenazi
+```
+
+2. Using the `diabetes` data, fit the interaction model using (1) the frailty option of `coxph`, using both the gamma and gaussian random effects options, and (2) using the “cluster” option in `coxph`.     
+Compare the estimated parameters and standard errors to those from the `coxme` model.      
+
+```{r}
+head(diabetes)
+coxph(Surv(time, status) ~ treat + as.factor(adult) + treat * as.factor(treat) + frailty.gamma(id), 
+      data = diabetes)
+coxph(Surv(time, status) ~ treat + as.factor(adult) + treat * as.factor(treat) + frailty.gaussian(id), 
+      data = diabetes)
+coxph(Surv(time, status) ~ treat + as.factor(adult) + treat * as.factor(treat) + cluster(id), 
+      data = diabetes)
+coxme_cox_diabetes
+```
+
+3. Again using the `diabetes` data, use `coxme` to fit a model without the interaction term.    
+Test for the importance of the interaction term using both a Wald test and a likelihood ratio test.    
+
+```{r}
+coxme(Surv(time, status) ~ treat + as.factor(adult) + (1 | id), data = diabetes)
+```
+
+4. Repeat the calculations of the cumulative incidence functions for death from prostate cancer and from other causes from "prostateSurvival", but use the age group 75–84 instead of 85 and above.    
+
+```{r}
+prost_75 <- prostateSurvival %>% 
+  as_data_frame() %>% 
+  mutate(status_prost = ifelse(status == 1, 1, 0),        # event by prostate cancer
+         status_other = ifelse(status == 2, 1, 0)) %>%    # event by other reasons
+  filter(grade == "poor", stage == "T2", ageGroup == "75-79")  
+
+km1 <- survfit(Surv(survTime, status_prost) ~ 1, data = prost_75)
+km2 <- survfit(Surv(survTime, status_other) ~ 1, data = prost_75)
+
+plot((1 -km1$surv) ~ km2$time, type = "s", ylim = c(0, 1), lwd = 2, 
+     xlab = "Years from prostate cancer diagnosis", col = "blue")
+lines(km2$surv ~ km2$time, type = "s", col = "green", lwd = 2)
+```
+

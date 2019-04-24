@@ -1,0 +1,813 @@
+---
+title: 'Chapter10: Parametric Models'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+library(survminer)
+library(broom)
+library(asaur)
+```
+
+### Introduction
+
+In biomedical applications, non-parametric (e.g. the product-limit survival curve estimator) and semi-parametric (e.g. the Cox proportional hazards model) methods play the most important role, since they have the flexibility to accommodate a wide range of hazard function forms.    
+Still, parametric methods have a place in biomedical research, and may be appropriate when survival data can be shown to approximately follow a particular parametric form.      
+Parametric models are often much easier to work with than the partial-likelihood-based models we have discussed in earlier chapters, since the former are defined by a small and fixed number of unknown parameters. This allows us to use standard likelihood theory for parameter estimation and inference. Furthermore, accommodating complex censoring and truncation patterns is much more direct with parametric models than with partial likelihood models.     
+Of course, the validity of these techniques depends heavily on the appropriateness of the particular parametric model being used. In Chap2 we introduced the **exponential**, **Weibull**, and **gamma distributions**, and mentioned several others that could potentially serve as survival distribution models.     
+<br />
+
+In this chapter we will emphasize the exponential and Weibull distributions, since these are the most commonly used parametric distributions. We will also briefly discuss the use of some other parametric models in analyzing survival data.     
+<br />
+<br />
+
+### The exponential distribution     
+
+The exponential distribution is the simplest distribution to work with.      
+It has a constant hazard function, $h(t) = \lambda$, which gives it the memory-less property. That is, the risk of having the event of interest is the same at any point in time as it was at the beginning.     
+The p.d.f. and survival functions are, as discussed in Chap2, $f(t; \lambda) = \lambda e^{-\lambda t}$ and $S(t; \lambda) = e^{-\lambda t}$, respectively.      
+To construct a likelihood function, we include the p.d.f. for each observed failure and the survival function for each (right) censored observation, as shown in Sect2.6. The simplicity of the exponential distribution makes it attractive for certain specialized applications, such as for power and sample size calculations, as we shall see in the next chapter.     
+But for modeling survival data, we will need the additional flexibility afforded by the Weibull distribution, of which the exponential distribution is a special case.      
+In fact, if a survival variable $T$ has an exponential distribution with parameter $\lambda$, the transformed variable $T^{\alpha}$, where $\alpha$ is an additional parameter, will have a Weibull distribution.       
+<br />
+<br />
+
+### The Weibull model      
+#### Assessing the Weibull distribution as a model for survival data in a single sample      
+
+The Weibull survival distribution, as expressed in Sect2.4, has hazard and survival functions $h(t) = \alpha \lambda ^ {\alpha} t ^ {\alpha - 1}$ and $S(t) = e^{-(\lambda t)^{\alpha}}$.      
+Later, when we use the Weibull distribution to assess the effects of covariates on survival, we shall find it convenient to use the scale parameter $\sigma = 1/\alpha$, with parameterization $\mu = -\log\lambda$.      
+Then,    
+
+$$
+h(t) = \frac{1}{\sigma}e^{-\frac{\mu}{\sigma}} \  t^{\frac{1}{\sigma} - 1}
+$$
+
+and    
+
+$$
+S(t) = e^{-e^{-\mu/ \sigma} \ t^{1/\sigma}}
+$$
+
+As discussed in Additional in Chap2, the term “scale” parameter as we use it here has a different meaning than what is often used when defining the Weibull distribution.    
+In the special case where $\sigma = 1$ the Weibull distribution reduces to an exponential distribution with rate parameter $\lambda$. Taking a complementary log-log transformation $g(u) = \log[-\log(u)]$ of the Weibull survival function, we have       
+
+$$
+\log[-\log(S_i)] = \alpha \log(\lambda) + \alpha \log(t_i) = -\frac{\mu}{\sigma}+\frac{1}{\sigma}\log(t_i)
+$$
+
+where $S_i = S(t_i)$.    
+<br />
+
+This result suggests a diagnostic tool to assess how well a set of survival data follow a Weibull distribution.  
+We first compute the Kaplan-Meier estimate $\hat{S}$ of a survival distribution.        
+Then, we define $y_i = \log\{-\log[\hat{S}(t_i)]\}$ and plot $y_i$ versus $\log(t_i)$. Finally, we fit through these points a straight line, with equation of the form $y = b + m \log(t)$ where $b = -\mu / \sigma$ and $m = 1/\sigma$ are, respectively, the y-intercept and slope of the line.     
+If the plotted points fall along this fitted line, one may conclude that the survival data may be approximately modeled using a Weibull distribution. We first obtain a Kaplan-Meier estimate of the survival distribution,      
+
+```{r}
+# convert to tibble
+(gastric_xelox <- as_data_frame(gastricXelox) %>% 
+   mutate(timeMonths = timeWeeks * 7 / 30.25))
+
+# Fit Kaplan-Meire estumate for gastric_xelox data
+km_xelox <- survfit(Surv(timeMonths, delta) ~ 1, data = gastric_xelox)
+```
+
+Next we extract the survival estimates and time variables from “km_xelox” and transform the former with a complementary log-log transformation, and the latter with a log transformation,     
+
+```{r}
+# make df from km_xelox
+df_km_xelox <- tidy(km_xelox) %>% 
+  mutate(log_log_surv = log(-log(estimate)), 
+         log_time = log(time))
+
+# plot log_time vs log_log_surv
+ggplot(df_km_xelox, aes(log_time, log_log_surv)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+The results, shown in above Fig, indicate that a Weibull distribution may not be appropriate for these data, since the points do not follow a linear relationship.      
+<br />
+
+We now consider if a Weibull distribution is appropriate for the `pharmacoSmoking` data discussed in earlier chapters. Ignoring for now the covariate information, we may examine the survival times to assess the suitability of the Weibull distribution as a basis for modeling these data.     
+Recall that the survival time is denoted “ttr” and indicates the time to relapse (or censoring), and “relapse” is the censoring variable. We first re-define survival times listed as zero to 0.5,      
+
+```{r}
+# convert to tibble and if ttr == 0, change 0.5
+(pharmaco_smoking <- pharmacoSmoking %>% 
+  as_data_frame() %>% 
+  mutate(ttr = ifelse(ttr == 0, 0.5, ttr)))
+```
+
+We then fit a fit a Kaplan-Meier survival curve to the data, and extract the survival and corresponding event times,    
+
+```{r}
+# fit KM method
+km_smoking <- survfit(Surv(ttr, relapse) ~ 1, data = pharmaco_smoking)
+
+# convert to df
+df_km_smoking <- tidy(km_smoking) %>% 
+  mutate(log_log_surv = log(-log(estimate)), 
+         log_time = log(time))
+
+# fit lm-model in df log_log_surv vs log_time
+(lm_km_smoking <- lm(log_log_surv ~ log_time, data = df_km_smoking))
+```
+
+We see that the slope is `r lm_km_smoking$coef[[2]] %>% round(4)` and the y-intercept is `r lm_km_smoking$coef[[1]] %>% round(4)`.     
+<br />
+
+We plot the points and fitted line as follows:      
+
+```{r}
+ggplot(df_km_smoking, aes(log_time, log_log_surv)) + 
+  geom_point() + 
+  geom_abline(aes(intercept = lm_km_smoking$coef[[1]], slope = lm_km_smoking$coef[[2]]))
+```
+
+The resulting plot, shown above Fig, shows a close agreement with a Weibull distribution.       
+Estimates of the scale and mean parameters are $\mu = -b/m = 2.0032/0.4385 = 4.568$ and $\sigma = 1/m = 1/0.4385 = 2.280$.      
+<br />
+
+#### Maximum likelihood estimation of Weibull parameters for a single group of survival data     
+
+The log-likelihood function, following the notation in Chapter 2, is   
+
+$$
+l(\lambda, \alpha) = \displaystyle \sum_{i = 1}^{n} \{ \delta_i \log[h(t_i)] + \log[S(t_i)] \}
+$$
+
+Substituting the expressions for $h(t_i)$ and $S(t_i)$, we get     
+
+$$
+l(\lambda, \alpha) = d\log\alpha + d\alpha\log\lambda + (\alpha - 1) 
+\displaystyle \sum_{i=1}^{n}\delta_i\log t_i -
+\displaystyle \lambda^{\alpha} \sum_{i=1}^{n} t_i^{\alpha}
+$$
+
+where $\sum_{i=1}^{n}\delta_i$.     
+<br />
+
+Later, when we use the Weibull distribution to assess the effects of covariates on survival, we shall find it convenient to use the scale parameter $\sigma = 1 / \alpha$, and the mean parameter $\mu = -\log\lambda$.      
+As an alternative, we may directly compute maximum likelihood estimates of these parameters. We may encode the log-likelihood of equation in the following R function.    
+
+```{r}
+logLikWeib <- function(par, tt, status) {
+  mu <- par[1]
+  sigma <- par[2]
+  lambda_p <- exp(-mu)
+  alpha_p <- 1 / sigma
+  
+  dd <- sum(status)
+  sum_t <- sum(status * log(tt))
+  sum_t_alpha <- sum(tt ^ alpha_p)
+  
+  term_1 <- dd * log(alpha_p) + alpha_p * dd * log(lambda_p)
+  term_2 <- (alpha_p - 1) * sum_t
+  term_3 <- (lambda_p ^ alpha_p) * sum_t_alpha
+  result <- term_1 + term_2 - term_3 
+  
+  return(result)
+}
+```
+
+The m.l.e may be obtained using the `optim` function, using as starting values the estimates of $\mu$ and $\sigma$ from the linear regression,   
+
+```{r}
+result <- optim(par = c(4.568, 2.280), fn = logLikWeib, method = "L-BFGS-B",
+                lower = c(0.001, 0.01), upper=c(5, 5), control = list(fnscale = -1),
+                tt = pharmaco_smoking$ttr, status = pharmaco_smoking$relapse)
+```
+
+As always, we use the option “control = list(fnscale = -1)” to tell the optim function to find a maximum (rather than a minimum). The final m.l.e. is given by      
+
+```{r}
+result$par
+```
+
+The first element of “**result$par**” is $\hat{\mu}$ and the second element is $\hat{\sigma}$. A more practical way to obtain these estimates is by means of the function `survreg` in the `survival` package, which of course yields the same parameter estimates:      
+
+```{r}
+result_survreg_pharmaco_smoking <- survreg(Surv(ttr, relapse) ~ 1, dist = "weibull", 
+                                           data = pharmaco_smoking)
+summary(result_survreg_pharmaco_smoking)
+```
+
+The m.l.e. of the scale parameter, 2.04, is close to the value 2.28 from the linear regression approach.    
+The “Intercept” m.l.e., 4.656, is approximately the value 4.57 we obtained from the linear regression. The estimate “Log(scale)” is, of course, the log of the scale parameter.   
+<br />
+<br />
+
+#### Profile Weibull Likelihood    
+
+Suppose a survival random variable $T$ follows a Weibull distribution with parameters $\alpha$ and $\lambda$, as defined before.    
+If tha parameter $\alpha$ is fixed, then a new random variable $T^{*} = T^{\alpha}$ has an exponential distribution with parameter $\lambda^{\alpha}$.    
+It follows then, from results in Chap 2 on the maximum likelihood estimate for an exponential distribution, that for a known value of $\alpha$, we have $\hat{\lambda} = (d/V)^{1/\hat{\alpha}}$, where $V = \sum t_i^{\alpha}$ and $d$ is the total number of deaths.    
+Since the m.l.e. $\hat{\lambda}(\alpha)$ for a fixed value of $\alpha$ can be obtained so easily, we can express the Weibull log-likelihood as $l^{*}(\alpha) = l(\lambda(\alpha), \alpha)$, which is a function of a single parameter $\alpha$. This form of the likelihood function is known as a profile likelihood, since one of the parameters $(\lambda)$ is replaced with it’s maximum likelihood estimate contingent on a particular value of the other parameter $(\alpha)$. So maximizing $l^{*}(\alpha)$ will yield the maximum likelihood estimate of $\alpha$; the m.l.e for $\lambda$ is then $\hat{\lambda}=(d/V)^{1/\hat{\alpha}}$.   
+In R, we define the profile likelihood as follows:      
+
+```{r}
+logLikWeibProf <- function(par, tt, status) {
+  # find log-likelihood for a particular sigma, using mle for mu 
+  sigma <- par
+  alpha_p <- 1 / sigma
+  dd <- sum(status)
+  sum_t <- sum(status * log(tt))
+  sum_t_alpha <- sum(tt ^ alpha_p)
+  lambda_p <- (dd / sum_t_alpha) ^ (1 / alpha_p) 
+  
+  term_1 <- dd * log(alpha_p) + alpha_p * dd * log(lambda_p)
+  term_2 <- (alpha_p - 1) * sum_t
+  term_3 <- (lambda_p ^ alpha_p) * sum_t_alpha
+  result <- term_1 + term_2 - term_3
+  return(result)
+}
+```
+
+This differs from the function “logLikWeib” of the previous section in that now **“par” is a single number, sigma**, and **“lambda_p” is defined using a particular value of alpha_p = 1 / sigma**.    
+To obtain the m.l.e. for 􏰅 we find the maximum of the profile log-likelihood as follows:      
+
+```{r}
+result_prof <- optim(par = c(2.280), fn = logLikWeibProf, method= "L-BFGS-B", 
+                    lower = c(0.01), upper = c(5), control = list(fnscale = -1), 
+                    tt = pharmaco_smoking$ttr, status = pharmaco_smoking$relapse)
+
+# estimated sigma
+result_prof$par
+```
+
+The resulting estimate, $\sigma = 2.041063$, is the same as we obtained in the previous section. To obtain $\hat{\lambda}$ and $\hat{\mu} = 1/\hat{\lambda}$, we do the following:   
+
+```{r}
+dd <- sum(pharmaco_smoking$relapse)
+sigma_hat <- result_prof$par
+alpha_p <- 1 / sigma_hat
+sum_t_alpha <- sum(pharmaco_smoking$ttr ^ alpha_p)
+lambda_p <- (dd / sum_t_alpha) ^ (1 / alpha_p)
+(mu_hat <- -log(lambda_p))
+```
+
+The resulting estimate, $\hat{\mu} = 4.656329$, is also the same as we obtained in the previous section.    
+We may plot the profile likelihood in terms of sigma as follows, for a range of values of $\sigma$ from 1.0 to 5.0:      
+The profile log-likelihood is shown in below Fig.     
+
+```{r}
+# create data_frame
+df <- data_frame(x = seq(1, 5, length.out = 100))
+for (i in seq_along(df$x)) {
+  df$y[[i]] <- logLikWeibProf(df$x[[i]], pharmaco_smoking$ttr, pharmaco_smoking$relapse)
+}
+
+# plot
+ggplot(df, aes(x, y)) + 
+  geom_line() + 
+  geom_vline(xintercept = result_prof$par, linetype = "dashed")
+```
+
+<br />
+<br />
+
+#### Selecting a Weibull Distribution to Model Survival Data     
+
+We can fit a Weibull distribution to a set of data to obtain maximum likelihood estimates of the two parameters, as we have seen.     
+In some cases, it may be desirable to find a Weibull distribution that matches the survival data at two specified time points. Suppose the two time points are $t_1$ and $t_2$, and the estimated survival points (from the Kaplan-Meier survival curve) at these two points are $s_1$ and $s_2$, respectively.   
+Let us define $y_1 = \log[-\log(s_1)]$ and $y_2 = \log[-\log(s_2)]$.    
+
+Using before Eq, we have    
+
+$$
+y_1 = \alpha \log(\lambda) + \alpha \log(t_1) \\
+y_2 = \alpha \log(\lambda) + \alpha \log(t_2)
+$$
+
+Solving these two simultaneous linear equations, we get   
+
+$$
+\bar{\alpha} = \frac{y_1 - y_2}{\log(t_1) - \log(t_2)} \\
+\bar{\lambda} = \exp \{ \frac{y_2 \log(t_1) - y_1 \log(t_2)}{y_1 - y_2} \}
+$$
+
+To illustrate, consider the pharmacoSmoking data, and let’s find a Weibull distribution that matches the Kaplan-Meier estimate of the survival distribution for the “patchOnly” group at 4 and 12 weeks (28 and 84 days).      
+```{r}
+# make patch-only subset
+patch_only <- pharmaco_smoking %>% 
+  filter(grp == "patchOnly")
+```
+
+
+In R, we first find the Kaplan-Meier estimate, which is in “km_surv_patch”, and then find the survival estimates at times 28 and 84 days, which we put into “result.summ”. Then we extract those two times (“t.vec”) and the survival estimates (“s.vec”), and display them. In the following, we summarize the survival results at 28 and 84 days, that is, 4 and 12 weeks, respectively (assuming we have attached the pharmacoSmoking data):    
+
+```{r}
+km_surv_patch <- survfit(Surv(ttr, relapse) ~ 1, data = patch_only)
+result_summ <- summary(km_surv_patch, time = c(28, 84))
+data_frame(result_summ$time, result_summ$surv)
+```
+
+Next, we use the “Weibull2” function in F. Harrell’s `Hmisc` package to produce a Weibull function that matches these two points,    
+
+```{r}
+library(Hmisc)
+weib_pharmaco <- Weibull2(result_summ$time, result_summ$surv)
+```
+
+The function “weib_pharmaco” computes the Weibull survival estimates for a range of time values,      
+
+```{r}
+df_weibull2 <- data_frame(t = 1:200, 
+                          s_w2 = weib_pharmaco(t))
+```
+
+(The internal parametrization used by the `Weibull2` function is different from what we use in this book, but this doesn’t matter, since of course it produces the same survival estimates.)     
+<br />
+
+Next, let us obtain the predicted Weibull survival curve based on maximum likelihood estimates of the Weibull parameters.    
+
+```{r}
+weib_surv_patch <- survreg(Surv(ttr, relapse) ~ 1, dist = "weibull", 
+                           data = patch_only)
+
+mu_hat_patch <- weib_surv_patch$coefficients
+sigma_hat_patch <- weib_surv_patch$scale
+lambda_hat_patch <- exp(- mu_hat_patch)
+alpha_hat_patch <- 1 / sigma_hat_patch
+surv_hat_patch <- 1 - pweibull(1:200, shape = alpha_hat_patch, scale = 1 / lambda_hat_patch)
+
+df_weibull2 <- df_weibull2 %>% 
+  mutate(s_w = surv_hat_patch)
+```
+
+Finally, we plot the survival estimates below,    
+
+```{r}
+plot(km_surv_patch, conf.int = FALSE, 
+     xlab = "Days to relapse", ylab = "Survival probability")
+lines(s_w ~ t, data = df_weibull2, col = "blue")
+lines(s_w2 ~ t, data = df_weibull2, col = "red")
+points(result_summ$time, result_summ$surv, col = "red")
+```
+
+In the next chapter we will use the estimated Weibull function for simulating survival data for computing the power to detect a difference in a randomized study.     
+<br />
+<br />
+
+### Comparing Two Weibull Distributions Using the Accelerated Failure Time and Proportional Hazards Models      
+
+Suppose now that we have two groups of survival data, one of patients who received an experimental treatment and one of patients who received a control.     
+In prior chapters the quantity we used to compare the two distributions was the hazard ratio $e^{\beta}$ which, under the proportional hazards assumption, was assumed not to change over time. If the experimental treatment were effective in increasing survival, the hazard ratio would be less than one, and the log-hazard ratio $\beta$ would thus be negative.      
+<br />
+
+An alternative way of comparing a treatment group to a control group, often used with parametric models, is called ***the accelerated failure time (AFT) model*** (sometimes referred to as the accelerated life model).   
+In this model we assume that the survival time for a treated patient is a multiple $e^{\gamma}$ of what the survival time would have been had the patient received the control treatment.     
+A key property of the AFT model is this: if the treatment is effective, the accelerated time coefficient $e^{\gamma}$ will be greater than one, and thus $\gamma$ will be positive.    
+
+Formally, the survival distributions for the accelerated life model are given by $S_1(t) = S_0(e^{- \gamma} t)$ and the hazards are given by $h_1(t) = e^{- \gamma} h_0(e^{- \gamma} t)$.   
+In the case of the Weibull distribution, we have     
+
+$$
+h_1(t) = e^{- \gamma} h_0(e^{-\gamma} t) =
+e^{- \gamma} \cdot \frac{1}{\sigma} \cdot e^{- \frac{\mu_0}{\sigma}} (e^{-\gamma} t)^{\frac{1}{\sigma} - 1}
+$$
+Rearranging, we have    
+
+$$
+h_1(t) = 
+e^{- \frac{\gamma}{\sigma}} \cdot \frac{1}{\sigma} \cdot e^{- \frac{\mu_0}{\sigma}} t^{\frac{1}{\sigma} - 1} = 
+e^{- \frac{\gamma}{\sigma}} h_0(t)
+$$
+
+That is, in the case of the Weibull distribution, the accelerated life model is equivalent to a proportional hazards model with proportionality factor $e^{\beta} = e^{- \frac{\gamma}{\sigma}}$.      
+Thus, the proportional hazards model and the accelerated life model are equivalent in the case of a Weibull distribution, with $\beta = - \gamma / \sigma$. Furthermore, it is possible to show that the Weibull distribution is the only distribution with this property.    
+<br />
+
+The pharmacoSmoking data, comparing the triple therapy treatment group to the patch treatment provides an illustration of these principles. The Weibull model may be used to compare the two groups as follows, using the `survreg` function in the survival package:     
+
+```{r}
+survreg_grp <- survreg(Surv(ttr, relapse) ~ grp, data = pharmaco_smoking, dist = "weibull")
+summary(survreg_grp)
+```
+
+We see that $\hat{\gamma} = -1.251$, indicating that the “patch only” treatment group has shorter times to relapse than the triple therapy group by a factor of $e^{\hat{\gamma}} = e^{-1.251} = 0.286$.     
+The estimate of the scale parameter is $\sigma = 1.99$. Thus, if we want to compare the patch group to the triple therapy group using a proportional hazards model, the log proportional hazards is given by $\beta = -\gamma / \sigma = 1.251 / 1.99 = 0.629$. We may compare this to the results of fitting a Cox proportional hazards model as follows:       
+
+```{r}
+km_grp <- coxph(Surv(ttr, relapse) ~ grp, data = pharmaco_smoking)
+summary(km_grp)
+```
+
+The corresponding estimate of the log hazards ratio from the Cox model, 0.6050, is near (but not the same as) 0.629, the estimate from the Weibull model.      
+Notice that the Cox model output shows only one parameter estimate, that for the effect of the patch (as compared to the triple therapy). The Weibull model results in three parameter estimates, one of which is also a comparison of the patch to the triple therapy. The other two estimates represent the baseline Weibull distribution.      
+As discussed in previous chapters, the Cox proportional hazards model does not produce an “intercept” term among the coefficient estimates; if there were an intercept term, it would cancel out of the partial likelihood just as the baseline hazard does. (Once a Cox model has been fitted, it is of course possible to obtain an estimate of the baseline hazard, as discussed in Chapter 5)     
+Parametric survival models, by contrast, include an intercept term, which can be used to determine the baseline hazard function. For the pharmacoSmoking data, with “grp” as a predictor, the baseline hazard function is a Weibull distribution with parameter estimates $\hat{\mu_0} = 5.286$ and the scale parameter estimate, which is the same for both groups, is $\sigma = 1.99$.     
+To obtain the estimated survival curve for the triple-therapy group, which here is the baseline group, we compute the parameters of the baseline Weibull distribution, $\hat{\alpha} = 1 / \hat{\sigma} = 1/1.99 = 0.502$ and $\hat{\lambda_0} = e^{-\hat{\mu}} = e^{-5.286} = 0.00506$.     
+
+The estimated baseline survival function is then   
+
+$$
+\hat{S_0(t)} = e^{(-\hat{\lambda}t)^{1/\hat{\sigma}}}
+$$
+
+We may obtain the baseline Weibull coefficient estimates in R as follows:      
+
+```{r}
+mu0_hat_ <- survreg_grp$coef[1]
+sigma_hat_ <- survreg_grp$scale
+alpha_hat_ <- 1 / sigma_hat_
+lambda0_hat_ <- exp(-mu0_hat_)
+```
+
+From these we compute the baseline survival function,   
+
+```{r}
+tt_vec_ <- 0:182
+surv0_vec_ <- 1 - pweibull(tt_vec_, shape = alpha_hat_, scale = 1 / lambda0_hat_)
+```
+
+recalling the “scale” terminology for the “pweibull” function is quite different from the “scale” term in the “survreg” function.     
+To obtain the Weibull function for the comparison group (here the “patchOnly” group), we note that the proportional hazards constant is $e^{-\hat{\gamma} / \hat{\sigma}} = e^{-0.629} = 0.533$.    
+That is, the hazard for the “patchOnly” group is 0.533 times the hazard for the “combination” group. The survival function for the combination group is $S_1(t) = \{S_0(t)^{e^{-\hat{\gamma} / \hat{\sigma}}} \}$.      
+<br />
+
+In R, $\hat{\gamma}$ is the coefficient for the “grp” term, and is the second element of “coef”,    
+
+```{r}
+gamma_hat_ <- survreg_grp$coef[2]
+surv1_vec_ <- surv0_vec_^(exp(-gamma_hat_/sigma_hat_))
+```
+
+It is helpful to compare these survival estimates to those from the Cox propor- tional hazards model. The latter survival estimates are obtained as follows:      
+
+```{r}
+cox_surv_est <- survfit(km_grp, 
+                        newdata = data.frame(list(grp=c("combination","patchOnly"))))
+```
+
+In the call to “survfit”, we have created a data frame for the “grp” variable, and use that data along with the results of the Cox proportional hazards model to obtain the predicted survival curves. We may plot the Cox-based survival curves and the Weibull-based survival curves on the same plot,       
+
+```{r}
+plot(cox_surv_est, col = c("red", "black"))
+lines(surv0_vec_ ~ tt_vec_, col="red")
+lines(surv1_vec_ ~ tt_vec_)
+```
+
+The resulting plot, shown in above plot, shows the Cox model estimates as step functions and the Weibull-based estimates as smooth curves.      
+<br />
+<br />
+
+#### A Regression Approach to the Weibull Model      
+
+An alternative way of looking at a Weibull accelerated failure time model comparing two groups is by modeling the log survival time as a location-scale model, as follows:     
+
+$$
+\log(t) = \mu + \gamma z + \sigma \epsilon ^{*}
+$$
+
+where $\epsilon$ follows a unit exponential distribution, which leads to $\epsilon^{*}=\log{\epsilon}$ having what is called an extreme value distribution.    
+This formulation suggests that other choices for the distribution of $\epsilon$ can lead to other parametric survival models, as will be discussed after.     
+<br />
+<br />
+
+#### Using the Weibull Distribution to Model Survival Data with Multiple Covariates     
+
+We may use `survfit` to accommodate multiple covariates into a Weibull accelerated failure time model in a straightforward manner.      
+For example, for the `pharmacoSmoking` data, we previously (in Chapter 7) settled on a Cox proportional hazards model with treatment group, age, and employment status as predictors.      
+
+The output of that model is as follows:       
+
+```{r}
+coxph_all_pharmaco <- coxph(Surv(ttr, relapse) ~ grp + age + employment, 
+                            data = pharmaco_smoking)
+summary(coxph_all_pharmaco)
+```
+
+Here, a positive coefficient indicates higher hazard, and thus worse survival.    
+For example, the coefficient for “patchOnly” is 0.608, which indicates that the hazard is higher for this treatment group than for the triple therapy group, by a constant factor of $e^{0.60788} = 1.836543$.     
+<br />
+
+We may include these covariates in a Weibull model as follows:     
+
+```{r}
+weib_all_pharmaco <- survreg(Surv(ttr, relapse) ~ grp + age + employment, 
+                             data = pharmaco_smoking, dist = "weibull")
+summary(weib_all_pharmaco)
+```
+
+Even though we have fit a survival model to the same data using the same predictors, the output of `survreg` differs from that of `coxph` in two important ways.      
+The first difference is that `coxph` produces estimates for the predictors only, whereas `survreg` produces not only those estimates but also two more, one for the “intercept” and one for “Log(scale)”.    
+These two parameters define the baseline Weibull survival model. The scale parameter estimate, 1.88, is also printed in line 12; the log of this, unsurprisingly, is 0.6313, and is printed in line 10.       
+The second important difference is that the parameter estimates from `survreg` are accelerated failure time constants.   
+That is, for “patchOnly” (line 6), the estimate `r weib_all_pharmaco$coefficients["grppatchOnly"] %>% round(4)` is negative, and indicates that patients receiving this treatment have shorter times to relapse than do the patients receiving triple therapy, and the “acceleration” factor is $e^{-1.1902} = 0.304$. (Since this factor is less than one, it might be more properly referred to as deceleration.)      
+Since for a Weibull distribution, the accelerated failure time model is equivalent to a proportional hazards model, we may convert the acceleration coefficients to proportional hazards estimates to better compare them to those obtained from the Cox partial likelihood model. As discussed earlier, if $\gamma_j$ represents the $j$th parameter from the accelerated failure time model, then $\beta_j = \gamma_j / \sigma$ represents the $j$th parameter from a proportional hazards model, where $\sigma$ is the scale.     
+Converting the output from `survreg` to proportional hazards is thus straightforward in principle, but the mechanics of doing in R are rather involved.     
+<br />
+
+First, we need to extract the coefficient estimates from "weib_all_pharmaco", which is a vector of seven elements. Then select the coefficient estimates, which are elements 2 through 5,       
+
+```{r}
+weib_all_pharmaco$coeff[2:5]
+```
+
+To get the proportional hazards estimates, we need to extract the estimate of the scale factor, “weib_all_pharmaco$scale”, and then switch the sign, and divide,      
+
+```{r}
+# proportional hazards from AFT model
+- weib_all_pharmaco$coef[2:5] / weib_all_pharmaco$scale
+```
+
+The vector contains the proportional hazards parameter estimates from the Weibull model. Extracting the coefficients from the Cox (partial likelihood) model is somewhat simpler,     
+
+```{r}
+coxph_all_pharmaco$coeff
+```
+
+We may use the `data_frame` function to assemble the estimates and standard errors in a table as follows:    
+
+```{r}
+data_frame(weib_proportional_hazards = - weib_all_pharmaco$coef[2:5] / weib_all_pharmaco$scale, 
+           cox_proportional_hazards = coxph_all_pharmaco$coeff)
+```
+
+The parameter estimates from the two models are quite similar, differing by no more than 7%.    
+<br />
+<br />
+
+#### Model Selection and Residual Analysis with Weibull Survival Data     
+
+Many of the facilities for model selection and residual analysis that we discussed in Chapter 6 and 7 may also be used with Weibull modeling of survival data.      
+For example, we may fit a model with all covariates as predictors, and then use backwards stepwise regression, using the AIC as a measure of goodness of fit, as follows:     
+
+```{r, results = FALSE, warning = FALSE}
+# making Weibull model from all varibales
+weib_pharmaco_ALL <- survreg(Surv(ttr, relapse) ~ ., 
+                             data = pharmaco_smoking, dist = "weibull")
+# apply step method by AIC
+weib_pharmaco_step <- step(weib_pharmaco_ALL)
+```
+
+```{r}
+# show model by step-down method
+summary(weib_pharmaco_step)
+```
+
+The resulting model, with “grp”, “age”, and “employment”, is the same as we discussed in the previous section. We may also use the “residuals” function to compute deviance residuals and deletion residuals,      
+
+```{r}
+# add fitted and resid
+resid_pharmaco <- pharmaco_smoking %>% 
+  mutate(predict = predict(weib_all_pharmaco), 
+         resid = residuals(weib_all_pharmaco, type = "deviance")) %>% 
+  arrange(id)
+
+head(resid_pharmaco)
+```
+
+```{r}
+# plot residual vs age
+resid_pharmaco %>% 
+  ggplot(aes(x = age, y = resid)) +  
+  geom_point() + 
+  geom_smooth()
+```
+
+```{r}
+# plot residual vs grp
+resid_pharmaco %>% 
+  ggplot(aes(grp, resid)) + 
+  geom_boxplot()
+```
+
+```{r}
+# plot residual vs employment
+resid_pharmaco %>% 
+  ggplot(aes(employment, resid)) + 
+  geom_boxplot()
+```
+
+We see that the residual distributions of both “grp” and “employment” are reasonably comparable, indicating that these variables are modeled successfully.     
+As for “age”, the distribution may be consistent with a linear model, when one considers the width of the 95 % confidence intervals. These results are similar to the diagnostics we saw with the Cox proportional hazards model, as shown in Fig. 7.2.       
+The effects of individual patients on the estimate of the coefficient for “age” may be computed as follows:     
+
+```{r}
+# make residuals by age vs id
+pharmaco_smoking %>% 
+  mutate(resid = residuals(weib_all_pharmaco, type = "dfbeta")[, "age"]) %>% 
+  rowid_to_column(var = "observation") %>% 
+  ggplot(aes(x = observation, y = resid)) + 
+  geom_segment(aes(x = observation, xend = observation, y = 0, yend = resid)) + 
+  geom_hline(aes(yintercept = 0))
+```
+
+The result is shown above. Compared to the corresponding plot for the Cox model we see that patients 46 and 68 are again influential, as is patient 114.     
+
+<br />
+<br />
+
+#### Other Parametric Survival Distributions    
+
+We may construct other accelerated failure time models by choosing other distributions for before Eq.  
+For example, if $\epsilon$ follows a standard normal distribution, the survival times $T$ follow a log-normal distribution. We may fit this model as follows:      
+
+```{r}
+lognormal_pharmaco <- survreg(Surv(ttr, relapse) ~ grp + age + employment, 
+                              data = pharmaco_smoking, dist="lognormal")
+
+summary(lognormal_pharmaco)
+```
+
+These parameter estimates are not from a proportional hazards model.   
+If $\epsilon$ has a logistic distribution, with survival distribution given by    
+
+$$
+S(u) = \frac{1}{1 + e^u}
+$$
+
+then $T$ has a *log-logistic* distribution. This model may be fitted using `survreg` as follows:      
+
+```{r}
+loglogistic_pharmaco <- survreg(Surv(ttr, relapse) ~ grp + age + employment, 
+                                data = pharmaco_smoking, dist="loglogistic")
+summary(loglogistic_pharmaco)
+```
+
+With this distribution, the odds of survival are proportional,    
+
+$$
+\frac{S_1(t)}{1 - S_1(t)} = e^{z \beta} \frac{S_0(t)}{1 - S_0(t)} 
+$$
+
+Just as the proportional hazards and accelerated lifetime models are equivalent for the Weibull distribution, the proportional odds and accelerated lifetime models are equivalent for the log-logistic distribution.    
+The parameter estimates obtained from all `survreg` parametric procedures are for accelerated failure time models.    
+
+### Additional Note    
+1. Many texts provide detailed discussions of the use of parametric models in survival analysis.     
+Examples include Cox and Oakes, Kalbfleisch and Prentice, Klein and Moeschberger, and Tableman and Kim.     
+
+### Exercises    
+
+1.Consider the `hepatoCellular` data in the `asaur` package.     
+Use the method of Sect. 10.3.1 to assess how appropriate a Weibull distribution is for (a) overall survival, and (b) recurrence-free survival.      
+
+(a) OS    
+```{r}
+# extract OS and RFS
+hepato_cellular <- as_data_frame(hepatoCellular) %>% 
+  select(Number, OS, Death, RFS, Recurrence)
+
+# fit survfit
+km_hepato_OS <- survfit(Surv(OS, Death) ~ 1, data = hepato_cellular)
+km_hepato_RFS <- survfit(Surv(RFS, Recurrence) ~ 1, data = hepato_cellular)
+```
+
+(b) RFS     
+```{r}
+# making log-log surv plot
+## a: OS
+df_hepato_OS <- data_frame(log_time = log(km_hepato_OS$time), 
+                           log_log_surv = log(-log(km_hepato_OS$surv)))
+
+## plot log-time vs log-log-surv
+ggplot(df_hepato_OS, aes(log_time, log_log_surv)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+```{r}
+## b: RFS
+df_hepato_RFS <- data_frame(log_time = log(km_hepato_RFS$time), 
+                            log_log_surv = log(-log(km_hepato_RFS$surv)))
+
+## plot log-time vs log-log-surv
+ggplot(df_hepato_RFS, aes(log_time, log_log_surv)) + 
+  geom_point() + 
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+Both of OS and RFS don't seem like appreciate a Weibull distributions...     
+<br />
+
+2. Test for the effect of CXCL17 on overall survival. Which of the three measures is the best predictor?     
+Repeat for recurrence-free survival.     
+
+```{r}
+hepato_cellular_CXCL17 <- hepatoCellular %>% 
+  as_data_frame() %>% 
+  select(Number, OS, Death, RFS, Recurrence, starts_with("CXCL"))
+```
+
+(a) OS   
+
+```{r}
+# CXCL17T, CXCL17P, CXCL17N on OS
+lst_OS <- list(
+  weib_CXCL17T = survreg(Surv(OS, Death) ~ CXCL17T, data = hepato_cellular_CXCL17, dist = "weibull"), 
+  weib_CXCL17P = survreg(Surv(OS, Death) ~ CXCL17P, data = hepato_cellular_CXCL17, dist = "weibull"), 
+  weib_CXCL17N = survreg(Surv(OS, Death) ~ CXCL17N, data = hepato_cellular_CXCL17, dist = "weibull")
+)
+
+# calculate AIC
+(AIC_lst_OS <- map_dbl(lst_OS, AIC))
+```
+
+(b) RFS   
+
+```{r}
+# CXCL17T, CXCL17P, CXCL17N on OS
+lst_RFS <- list(
+  weib_CXCL17T = survreg(Surv(RFS, Recurrence) ~ CXCL17T, data = hepato_cellular_CXCL17, dist = "weibull"), 
+  weib_CXCL17P = survreg(Surv(RFS, Recurrence) ~ CXCL17P, data = hepato_cellular_CXCL17, dist = "weibull"), 
+  weib_CXCL17N = survreg(Surv(RFS, Recurrence) ~ CXCL17N, data = hepato_cellular_CXCL17, dist = "weibull")
+)
+
+# calculate AIC
+map_dbl(lst_RFS, AIC)
+```
+
+<br />
+
+3. Using the covariates with complete data, use the `step` function to find a well-fitting model with low AIC for overall survival. Repeat for recurrence-free survival. Which covariates are included in both models?    
+
+(a) OS    
+
+```{r, results = FALSE, warning = FALSE}
+# making Weibull model from all varibales on OS
+weib_hepato_ALL_OS <- survreg(Surv(OS, Death) ~ ., 
+                              data = select(hepatoCellular, -c(RFS, Recurrence)), dist = "weibull")
+# apply step method by AIC
+weib_hepato_step_OS <- step(weib_hepato_ALL_OS)
+```
+
+```{r}
+# show model by step-down method
+weib_hepato_step_OS
+
+# show model's AIC
+AIC(weib_hepato_step_OS)
+```
+
+(b) RFS    
+
+```{r, results = FALSE, warning = FALSE}
+# making Weibull model from all varibales on RFS
+weib_hepato_ALL_RFS <- survreg(Surv(RFS, Recurrence) ~ ., 
+                              data = select(hepatoCellular, -c(OS, Death)), dist = "weibull")
+# apply step method by AIC
+weib_hepato_step_RFS <- step(weib_hepato_ALL_RFS)
+```
+
+```{r}
+# show model by step-down method
+weib_hepato_step_RFS
+
+# show model's AIC
+AIC(weib_hepato_step_RFS)
+```
+
+<br />
+
+4. Using the `ashkenazi` data in the `asaur` package, fit a Weibull distribution to the women with the “wild type” (non-mutant) BRCA genotype, matching the Kaplan-Meier survival curve at ages 45 and 65.     
+Then predict the probability that a woman with the wild type BRCA genotype will develop breast cancer before the age of 70.     
+
+```{r}
+# extract wild type data
+tbl_ashkenazi_wild <- as_data_frame(ashkenazi) %>% 
+  filter(mutant == 0)
+
+# fit k-m
+km_ashkenazi_wild <- survfit(Surv(age, brcancer) ~ 1, data = tbl_ashkenazi_wild)
+
+# extract survival at ages 45 and 65
+age_45_65 <- data_frame(time = summary(km_ashkenazi_wild, time = c(45, 60))$time, 
+                        surv = summary(km_ashkenazi_wild, time = c(45, 60))$surv)
+
+# fit Weibull matching surv at ages 45 and 65
+weib2_ashkenazi_wild <- Weibull2(age_45_65$time, age_45_65$surv)
+
+# create df km vs weibull2
+predict_surv <- data_frame(age = 1:100, 
+                           km = summary(km_ashkenazi_wild, time = age)$surv, 
+                           weib = weib2_ashkenazi_wild(age))
+```
+
+```{r}
+# predict age = 70 by km
+(km_70 <- summary(km_ashkenazi_wild, time = 70)$surv)
+```
+
+```{r}
+# predict age = 70 by weib2
+(weib2_70 <- weib2_ashkenazi_wild(70))
+```
+
+```{r}
+# plot surv vs weibull2
+plot(km_ashkenazi_wild, conf.int = FALSE, xlab = "Age", ylab = "Probability of breast cancer")
+lines(weib ~ age, data = predict_surv, col = "red")
+points(surv ~ time, data = age_45_65, col = "red")
+abline(v = 70, lty = 2)
+abline(h = km_70, lty = 2)
+abline(h = weib2_70, lty = 2, col = "red")
+```
+

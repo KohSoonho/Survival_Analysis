@@ -1,0 +1,438 @@
+---
+title: "Chapter8: Time Dependent Covariates"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(forcats)
+library(survival)
+library(survminer)
+library(broom)
+library(asaur)
+```
+
+### Introduction   
+
+The partial likelihood theory for survival data, introduced in Chap 5, allows one to model survival times while accommodating covariate information.    
+An important caveat to this theory is that the values of the covariates must be determined at time $t = 0$, when the patient enters the study, and remain constant thereafter.    
+<br />
+
+This issue arises with survival data because such data evolve over time, and it would be improper to use the value a covariate to model survival information that is observed before the covariate’s value is known.    
+To accommodate covariates that may change their value over time (**time dependent covariates**), special measures are necessary to obtain valid parameter estimates.    
+An intervention that occurs after the start of the trial, or a covariate (such as air pollution exposure) that changes values over the course of the study are two examples of time dependent variables.   
+<br />
+
+The rule is clear: we cannot predict survival using covariate values from the future.   
+Unfortunately, this deceptively simple principle can ensnare even an experienced researcher. An oft cited and extensively studied example of this is the Stanford heart transplant study, published by Clark et al. in the Annals of Internal Medicine in 1971.    
+This study of the survival of patients who had been enrolled into the transplant program appeared to show that patients who received heart transplants lived significantly longer than those who did not. The data are in the `survival` package in a data set named `jasa` after a journal article that discussed analysis methods for the data. Here is a naive analysis:    
+
+```{r}
+# glimpse "jasa"
+tbl_jasa <- as_data_frame(jasa)
+head(tbl_jasa)
+glimpse(jasa)
+```
+
+```{r}
+# fit cox regression model
+cox_jasa <- coxph(Surv(futime, fustat) ~ transplant + age + surgery, data = tbl_jasa)
+summary(cox_jasa)
+```
+
+The key covariate is “transplant”, which takes the value 1 for those patients who received a heart transplant and 0 for those who did not.    
+The estimate of the transplant coefficient is `r round(cox_jasa$coefficients["transplant"], 3)`, and the p-value is very small. This result may appear to indicate (as it did to Clark et al. in 1971) that transplants are extremely effective in increasing the lifespan of the recipients.    
+<br />
+
+Soon after publication of this result, Gail, in an article in the same journal, questioned the validity of the result, and numerous re-analyses of the data followed.    
+The problem here is that **receipt of a transplant is a time dependent covariate**; patients who received a transplant had to live long enough to receive that transplant.    
+Essentially, the above analysis only shows that patients who live longer (i.e. long enough to receive a transplant) have longer lives than patients who don’t live as long, which of course is a tautology.    
+<br />
+
+A simple fix is to define a **landmark** time to divide patients into two groups.   
+In this approach, patients who receive the intervention prior to the landmark go into the intervention group and those who did not are placed in the comparison group.   
+Key requirements of this approach are that **(a) only patients who survive up to the landmark are included in the study**, and **(b) all patients (in particular, those in the comparison group) remain in their originally assigned group regardless of what happens in the future, i.e., after the landmark**.    
+<br />
+
+For example, for the heart transplant data, we may set a landmark at 30 days.    
+We first select those patients who lived at least 30 days (79 of the 103 patients lived this long).    
+
+```{r}
+# filter living at least 30 days
+tbl_landmark_jasa <- filter(jasa, futime >= 30) %>% 
+  mutate(transplant30 = if_else(wait.time < 30 & !is.na(wait.time), TRUE, FALSE))
+# number of cases
+tbl_landmark_jasa %>% 
+  group_by(transplant30, transplant) %>% 
+  summarize(n = n())
+```
+
+Of these `r nrow(tbl_landmark_jasa)` patients, `r sum(tbl_landmark_jasa$wait.time < 30, na.rm = TRUE)` had a transplant within 30 days, and `r nrow(tbl_landmark_jasa) - sum(tbl_landmark_jasa$wait.time < 30, na.rm = TRUE)` did not. Of these `r nrow(tbl_landmark_jasa) - sum(tbl_jasa$wait.time < 30, na.rm = TRUE)`, `r sum(tbl_jasa$wait.time > 30, na.rm = TRUE)` subsequently had a heart transplant, but we still count them in the “no transplant within 30 days” group.   
+In this way we have created a variable (we shall call it “transplant30”) which has a fixed value (that is, it does not change over time) for all patients in our set of 30-day survivors.    
+Here is how we set things up:    
+
+```{r}
+# fit cox regression model by landmark
+cox_jasa_landmark <- coxph(Surv(futime, fustat) ~ transplant30 + age + surgery, 
+                           data = tbl_landmark_jasa)
+summary(cox_jasa_landmark)
+```
+
+The coefficient for transplant30 (a true/false indicator for transplant within the first 30 days) is 
+`r tidy(cox_jasa_landmark) %>% filter(term == "transplant30TRUE") %>% pull(estimate) %>% round(3)`, and the p-value is `r tidy(cox_jasa_landmark) %>% filter(term == "transplant30TRUE") %>% pull(p.value) %>% round(3)`, which is not at all statistically significant.   
+<br />
+
+This **landmark method** analysis indicates that there is little or no difference in survival between those who got a transplant and those who did not.   
+Although the landmark method is straightforward to implement, we have no guidance as to when to set the landmark. Why 30 days? Why not 15? Or why not 100?     
+There is no clear way to answer this question. Furthermore, this 30-day landmark method requires that we discard almost a quarter of the patients from the analysis.    
+<br />
+
+Fortunately there is a better way, which is to directly model the variable “transplant” as a time dependent variable.   
+This can be done in the framework of the classical Cox proportional hazards model, but important adjustments are required to obtain unbiased estimates.   
+
+To see how to do this, it is helpful to look at a small data set, which we construct by selecting an illustrative subset of six patients, three of which had a transplant and three who did not.    
+We may set up the data in R as follows:   
+
+```{r}
+tbl_jasa_small <- jasa %>% 
+  rowid_to_column(var = "id") %>% 
+  select(1, 10, 9, 6, 11) %>% 
+  slice(c(2, 5, 10, 12, 28, 95)) 
+
+tbl_jasa_small
+```
+
+We may plot them.    
+
+```{r}
+ggplot(tbl_jasa_small, aes(x = futime, y = fct_rev(factor(id)))) + 
+  geom_point(shape = 4, size = 2) + 
+  geom_point(aes(x = wait.time), shape = 19, size = 2) + 
+  geom_segment(aes(xend = 0, yend = fct_rev(factor(id)))) + 
+  scale_x_continuous(breaks = seq(0, 80, by = 20)) + 
+  expand_limits(x = 85) + 
+  ylab("id")
+```
+
+In this simple data set, all of the patients died within the follow-up time (fustat = 1 for all patients).   
+We may model the data incorrectly (ignoring the fact that “transplant” is time dependent) as follows:    
+
+```{r}
+cox_jasa_small <- coxph(Surv(futime, fustat) ~ transplant, data = tbl_jasa_small)
+summary(cox_jasa_small)
+```
+
+To do this correctly, we need to modify the partial likelihood function to accommodate these types of variables. Essentially, at each failure time, there are a certain number of patients at risk, and one fails, as we discussed in Chap 5.   
+However, the contributions of each subject can change from one failure time to the next. The hazard function is given by $h(t) = h_0(t)e^{z_k(t_i)\beta}$ , where the covariate $z_k(t_i)$ is the value of the time-varying covariate for the $k$th subject at time $t_i$.    
+
+The modified partial likelihood, in general, is as follows:    
+
+$$
+L(\beta) = \prod_{i = 1}^{D} \frac{\psi_{ii}}{\displaystyle \sum_{k \in R_i}\psi_{ki}} 
+$$
+where $\psi_{ki} = e^{z_k(t_i)\beta}$. In previous chapters the covariates were fixed at time $0$, so that $z_k(t_i) = z_k$ for all failure times $t_i$, and the denominator at each time could be computed by, as time passes, successively deleting the value of $\psi_i$ for the subject (or subjects) that failed at that time.    
+With a time dependent covariate, by contrast, the entire denominator has to be recalculated at each failure time, since the values of the covariates for each subject may change from one failure time to the next.    
+<br />
+
+For example, from "tbl_jasa_small", we see that Patient #2 is the first to fail, at $t = 5$.   
+At this time, all six patients are at risk, but only one, Patient #95, has had a transplant at this time. So the denominator for the first factor is $5 + e^{\beta}$, and the numerator is 1, since it was a non-transplant patient who died.    
+Patient 12 is the next to die, at time $t = 7$, and none of the patients in the risk set have changed their covariate value.    
+But when the third patient dies, Patient #95, at $t = 15$, one of the other patients (#10) has switched from being a non-transplant patient to one who has had one. There are now four patients at risk, of which two (#10 and #95) are transplant patients. The denominator is thus $2 + 2e^{\beta}$ and the numerator is $e^{\beta}$, since it was a transplant patient that died. The full partial likelihood is      
+
+$$
+L(\beta) = \frac{1}{5 + e^{\beta}} + \frac{1}{4 + e^{\beta}} + \frac{e^{\beta}}{2 + 2e^{\beta}} + 
+\frac{1}{2 + e^{\beta}} + \frac{e^{\beta}}{1 + e^{\beta}} + \frac{e^{\beta}}{e^{\beta}}
+$$
+We may use the `coxph` function to accommodate time dependent variables by first pre-processing the data into what we shall call “start-stop” format.    
+The validity of this approach may be derived from the counting process theory of partial likelihoods.    
+<br />
+
+Essentially, this approach divides the time data for patients who had a heart transplant into two time periods, one before the transplant and one after.    
+For example, Patient #10 was a non-transplant patient from entry until day 11. Since that patient received a transplant at that time, the future for that patient, had he or she not received a transplant, is unknown.     
+Thus, we censor that portion of the patient’s life experience at $t = 11$. Following the transplant, we start a new record for Patient #10. This second piece of the record is left-truncated at time $t = 11$, and a death is recorded at time $t = 57$.     
+It is left-truncated because that patient’s survival experience with the transplant starts at that point.   
+For the first part of this patient’s experience, the “start” time is 0, and the “stop” time is 11, which is recorded as a censored observation.    
+For the second piece of that patient’s experience, the start time is 11 and the stop time is 57.    
+<br />
+
+Thus, to put the data in start-stop format, the record of every patient with no transplant is carried forward as is, whereas the record of each patient who received a transplant is split into pre-transplant and post-transplant records.     
+The R survival package includes a function `tmerge` to simplify this conversion. We may transform the “tbl_jasa_small” data set into start/stop format as follows:    
+
+```{r}
+(sdata <- tmerge(tbl_jasa_small, tbl_jasa_small, id = id, 
+                death = event(futime, fustat), transpl = tdc(wait.time)) %>% 
+  select(id, tstart:transpl))
+```
+These data are diagrammed in Fig.     
+
+![](Fig8.1.png)
+
+Once the data are in this format, we may use the coxph function as we did with left-truncated data:       
+
+```{r}
+cox_jasa_sdata <- coxph(Surv(tstart, tstop, death) ~ transpl, data = sdata)
+summary(cox_jasa_sdata)
+```
+
+We may apply this method to the full heart transplant data in the same way as described in Therneau and Crowson (2015).    
+In the following, we define “tdata” as a temporary data set, leaving off the dates and transplant-specific covariates. Also, we add 0.5 to the death time on day 0, and break a tied transplant time.
+
+```{r}
+tdata <- tbl_jasa %>% 
+  select(fustat:transplant) %>% 
+  mutate(futime = pmax(futime, 0.5)) %>% 
+  rowid_to_column(var = "id")
+
+sdata2 <- tmerge(tdata, tdata, id = id, 
+                 death = event(futime, fustat), 
+                 trans = tdc(wait.time)) %>% 
+  select(id, tstart, tstop, death, trans, surgery, age) %>% 
+  as_data_frame()
+
+head(sdata2)
+```
+
+Patients 1, 2, and 3 did not have a transplant, so “tstart” takes the value 0 for all three, and “tstop” are the death times for those patients. For Patient 4, who had a heart transplant on day 35 and died on day 38, there are two records for each period of this patient’s experience, as described above.    
+<br />
+
+The results of fitting a time dependent Cox model are as follows:     
+
+```{r}
+cox_jasa_time_depent <- coxph(Surv(tstart, tstop, death) ~ trans + surgery + age, data = sdata2)
+summary(cox_jasa_time_depent)
+```
+
+We now see, as with the landmark analysis given earlier, that there is no evidence that receiving a heart transplant increases survival. This method is valid even though (unlike with the landmark method) no data are discarded.    
+<br />
+
+### Predictable Time Dependent Variables    
+An alternative way of modeling non-proportional hazards is to allow the coefficient for a particular covariate to vary with time.   
+Specifically, if there is only one covariate, we have $h(t) = h_0(t)e^{z_k\beta(t)}$, where now it is $\beta$ that varies with time (rather than the covariate $z_k$ as in the previous section). Characterizing the functional form of the non-proportional hazards is a much harder problem than simply testing for a difference, as we did in Chap 4.    
+Although here it is the coefficient $\beta$ that is changing rather than the covariate $z$, we may model this by defining a new time dependent variable with fixed coefficients that achieves the same effect. Because the time-varying relationship in the model is defined by the analyst, we refer to the variable as a predictable time dependent variable.    
+<br />
+
+In this section we will see how to use the pattern of Schoenfeld residuals to help us identify an appropriate time dependent function, and then model it using the time transfer function in the `survival` package.    
+<br />
+
+#### Using the Time Transfer Function  
+Consider again the pancreatic data. There we found that a log-rank test comparing the two groups did not yield a statistically significant result. Here we need to define a numerical (0/1) group variable, and fit the following model using the `pancreatic2` data in the `asaur` package:      
+
+```{r}
+tbl_pancreatic <- pancreatic2 %>% 
+  mutate(stage_number = if_else(stage == "M", 1, 0)) %>% 
+  as_data_frame()
+
+cox_pancreatic <- coxph(Surv(pfs) ~ stage_number, data = tbl_pancreatic)
+cox_pancreatic
+```
+
+The p-value (0.119) for the likelihood ratio test, which is similar to that from the log-rank test in Sect 4.1, shows little evidence of a group difference, as we saw there. Later in that section a plot of Schoenfeld residuals indicated that the hazard ratio appears not to be constant.    
+One way of dealing with this was to use the Prentice modification of the Wilcoxon test (using “rho = 1” in the “survdiff” function).    
+An alternative is to accommodate the changing hazard ratio by defining a time dependent covariate, $g(t) = z\cdot \log(t)$. In the survival package, the "time transfer" function `tt` allows us to do this.   
+We define the `tt` function within the coxph function, and this function computes the necessary terms for the coxph fitting function, as follows:     
+
+```{r}
+cox_pancreatic_tt <- coxph(Surv(pfs) ~ stage_number + tt(stage_number), 
+                           tt = function(x, t, ...) x * log(t), data = tbl_pancreatic)
+cox_pancreatic_tt
+```
+
+The fitted function is $\beta(t) = 6.01 - 1.09\cdot\log(t)$.   
+Here we see that, while the p-value for the time dependent variable is 0.065, the likelihood ratio test for both stage and the time dependent variable together is 0.0423.   
+This indicates that the group indicator combined with a time-varying hazard ratio yields evidence of a group difference. This is consistent with what we found in Sect 4.1 using the weighted log-rank test with weights defined using the option “rho = 1”.   
+<br />
+
+We may visually check this function by constructing a Schoenfeld residual plot (this time using a logarithmic transform scale), and then plotting the fitted function on the same plot,     
+
+```{r}
+sch_resid_panc_tt <- cox.zph(cox_pancreatic, 
+                             transform = function(pfs) log(pfs))
+plot(sch_resid_panc_tt)
+abline(coef(cox_pancreatic_tt), col = "red")
+```
+
+Here the “transform” option in `cox.zph` is a log function defined within the function call. (As an alternative, one could define this simple function outside of `cox.zph` and then specify it by name within `cox.zph`)    
+In this plot, the curved line is a loess (smooth) curve through the residuals. The tick marks on the horizontal axis follow a logarithmic scale, as specified by the “transform” argument in the “coxph.zph” function.   
+The red line is from the fitted time transfer function, not from a fit to the residuals; it is a log function whose plot appears straight because the horizontal axis is a logarithmic scale. This time transfer function indicates that overall, the log hazard ratio decreases over time.   
+<br />
+
+Other time dependent functions may not yield this result. For example, if $g(t) = z\cdot t$, we get a non-significant result (p-value = 0.102) for the effect of “stage_number” on survival:   
+
+```{r}
+(cox_pancreatic_tt2 <-  coxph(Surv(pfs) ~ stage_number + tt(stage_number), 
+                              tt = function(x, t, ...) x * t, data = tbl_pancreatic))
+```
+
+Thus, it is important to identify a hazard-ratio function that well-approximates the actual changing hazard ratio.   
+
+### Time Dependent Variables That Increase Linearly with Time   
+
+A common source of confusion is whether or not one could treat patient age as a time dependent variable.    
+We have seen the use of “age at entry” as a covariate in survival analysis, and this is a fixed quantity at time 0; the age of a patient at that time is fixed by definition. But we know that the age of a patient increases in lock step with time itself, so can’t we treat increasing age as a time dependent variable?    
+The answer is yes, but doing so has no effect on the model.     
+<br />  
+
+We could illustrate this with any survival data set that includes age as a covariate; for convenience, we shall choose an example from the `lung` data set in the survival package. This data set consists of survival times in days of 228 patients with advanced lung cancer.    
+
+```{r}
+(tbl_lung <- as_data_frame(lung))
+```
+
+
+A number of covariates are included, but we shall focus on “age” to illustrate what happens when it is treated as time dependent.    
+First, here is the result of fitting a model to this data with “age” (age at entry into the clinical trial) as the sole covariate:     
+
+```{r}
+cox_lung <- coxph(Surv(time, status == 2) ~ age, data = tbl_lung)
+cox_lung
+```
+
+We see that the log hazard increases with increasing age, with a p-value of 0.040. Now let us define “age” as a time dependent variable in the time transfer function, noting that “age” is in years, and the survival time, being measured in days, should be converted to years:     
+
+```{r}
+cox_lung_time <- coxph(Surv(time, status == 2) ~ tt(age), data = tbl_lung, 
+                       tt = function(x, t, ...) {x + t / 365.25})
+cox_lung_time
+```
+
+There is no change at all in the fitted values.    
+To see why this happens, let us denote age at entry into the trial by $z(0)$ and current age by $z(t) = z(0) + T$. Then the hazard function is given by     
+
+$$
+h(t) = h_0(t)e^{\beta z(t)} = \{ h_0(t)e^{\beta t} \}\cdot e^{\beta z(0)}
+$$
+If one inserts this expression into the partial likelihood in Chap 5, the time dependent part, $e^{\beta t}$, appears in both the numerator and the denominator of each factor, as does the baseline hazard. Both cancel, leaving only the age at entry variable $z(0)$. Thus, the coefficient $\beta$ for the time dependent model is identical to that from the non-time dependent model.      
+The same happens with any time dependent covariate that increases in lock step with time; continuous and unchanging exposure to a toxic substance would be a common example. However, if the variable doesn’t change at a constant rate, this equivalence no longer holds.   
+A simple example would be to use the log of current age, where {current age} = {age at entry} + {survival time}. See Exercise 5 for details.     
+
+### Additional Note   
+
+Further details concerning time dependent covariates and the time-transfer function may be found in the vignette distributed with the R package on this topic (Therneau and Crowson).     
+<br />
+
+### Exercises
+
+1. Encode the log of the partial likelihood in `tbl_jasa_small` into an R function, and find the maximum using `optim` (as in Chapter 5). Verify that the result matches that from the `coxph` procedure in `cox_jasa_small`.    
+```{r}
+# data frame
+sdata
+
+# likelihood function
+likeli_jasa_small <- function(beta) {
+  value <- (1 / (5 + exp(beta))) * (1 / (4 + exp(beta))) * 
+           (exp(beta) / (2 + 2 * exp(beta))) * (1 / (2 + exp(beta))) * 
+           (exp(beta) / (1 + exp(beta))) * (exp(beta) / exp(beta))
+  return(value)
+}
+
+# calculate beta which maximize likelihood
+result <- optim(par = 0, fn = likeli_jasa_small, method = "L-BFGS-B",
+                control = list(fnscale = -1),
+                lower = -3, upper = 1)
+result$par
+
+# result of cox model and result
+cox_jasa_sdata
+cox_jasa_sdata$coefficients
+```
+
+2. Consider the following synthetic time dependent data:   
+
+```{r}
+# make data_frame
+(tbl_sample <- data_frame(id = 1:6, 
+                         wait.time = c(12, NA, NA, 18, NA, 17), 
+                         futime = c(58, 8, 37, 28, 35, 77), 
+                         fustat = 1, 
+                         transplant = c(1, 0, 0, 1, 0, 1)))
+```
+
+First model the data ignoring the wait time.   
+
+```{r}
+(first_model <- coxph(Surv(futime, fustat) ~ transplant, data = tbl_sample))
+```
+
+Then transform the data into start-stop format,    
+
+```{r}
+(tbl_sample_sdata <- tmerge(tbl_sample, tbl_sample, 
+                            id = id, 
+                            death = event(futime, fustat), 
+                            trans = tdc(wait.time)) %>% 
+   select(id, tstart, tstop, death, transplant))
+```
+
+then use that form of the data to model “transplant” as a time dependent covariate.   
+Write out the partial likelihood for these data, and use this partial likelihood to find the maximum partial likelihood estimate of the coefficient for transplant.    
+
+$$
+L(\beta) = \frac{1}{6}\cdot\frac{e^{\beta}}{2+3e^{\beta}}\cdot\frac{1}{2+2e^{\beta}}\cdot
+\frac{1}{1+2e^{\beta}}\cdot\frac{e^{\beta}}{2e^{\beta}}\cdot\frac{e^{\beta}}{e^{\beta}}
+$$
+
+```{r}
+# defile partial likelihood function
+likeli <- function(beta) {
+  value <- exp(beta)
+  like <- (value ^ 3) / (6 * (2 + 3 * value) * (2 + 2 * value) * (1 + 2 * value) * (2 * value) * value)
+  return(like)
+}
+
+# detect beta which maximize likelihood
+result_sample <- optim(par = 0, fn = likeli, method = "L-BFGS-B", 
+                       control = list(fnscale = -1), 
+                       lower = -3, upper = 1)
+result_sample$par
+```
+
+Compare your answer to the results of `coxph`.    
+
+```{r}
+coxph(Surv(tstart, tstop, death) ~ transplant, data = tbl_sample_sdata)
+```
+
+3. For the pancreatic data, construct a Schoenfeld residual plot and loess smooth curve for an identity transform, using transform = “identity” in the coxph.zph function.     
+Then fit a linear time transfer function, as in Sect. 8.2.1, and plot the fitted line on the residual plot.    
+
+```{r}
+# glimpse pancreatic data
+glimpse(tbl_pancreatic)
+```
+
+```{r}
+# view cox model made from tbl_pancreatic
+cox_pancreatic
+```
+
+```{r}
+sch_resid_panc_iden <- cox.zph(cox_pancreatic, 
+                               transform = "identity")
+
+# plot Schoenfeld residual plot
+plot(sch_resid_panc_iden)
+# fit a linear transfer function
+abline(coef(cox_pancreatic_tt2), col = "red")
+```
+
+4. Again using the pancreatic data, construct the residual plot and plot the transfer function for $g(t) = \log(t - 30)$.    
+How does the evidence for a treatment effect differ from the result in Sect. 8.2.1 using $g(t) = \log(t - 30)$?     
+
+```{r}
+sch_resid_panc_tt2 <- cox.zph(cox_pancreatic, 
+                              transform = function(pfs) log(pfs - 30))
+plot(sch_resid_panc_tt2)
+abline(coef(cox_pancreatic_tt), col = "red")
+```
+
+5. Using the lung data as in Sect. 8.2.2, compute log(age) and fit a Cox model using this as a fixed covariate. Then fit log(age) as a time dependent variable, using the time transfer function. Do the results differ? Why?   
+
+```{r}
+glimpse(tbl_lung)
+cox_lung
+cox_lung_time
+cox_lung_log_time <- coxph(Surv(time, status == 2) ~ tt(age), data = tbl_lung, 
+                           tt = function(t, ...) {log(t)})
+cox_lung_log_time
+```

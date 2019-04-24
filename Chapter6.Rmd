@@ -1,0 +1,510 @@
+---
+title: "Chapter6: Model Selection and Interpretation"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+library(survminer)
+library(broom)
+library(asaur)
+```
+
+### Covariate adjustment    
+Survival analysis studies typically include a wealth of clinical, demographic, and biomarker information on the patients as well as indicators for a therapy or other intervention.    
+If the study is a randomized clinical trial, the focus will be on comparing the effectiveness of different treatments. A successful randomization procedure should ensure that confounding covariates are balanced between the treatments.     
+Regardless of the type of study, we will need methods to sift through a potentially large number of potential explanatory variables to find the important ones.
+To illustrate the importance of covariate adjustment, let us again look at the simulated data in Chap 4, which presented a study of the effect of treatment on survival in the presence of a genetic confounder.    
+Here is a Cox proportional hazards model of the effect of treatment on survival unadjusted for the genetic mutation status of the patients:    
+
+```{r}
+# make parameter list
+control_mutant <- list(rate = 0.03, rep = 25, treat = "control", genotype = "mutant")
+treat_mutant <- list(rate = 0.03 * 0.55, rep = 125, treat = "treat", genotype = "mutant")
+control_wild <- list(rate = 0.03 * 0.2, rep = 125, treat = "control", genotype = "wild")
+treat_wild <- list(rate = 0.03 * 0.55 * 0.2, rep = 25, treat = "treat", genotype = "wild")
+
+lst <- list(control_mutant, treat_mutant, control_wild, treat_wild)
+
+# set seed
+set.seed(4321)
+
+# make simulated df
+simulated_df <- map(lst, ~ tibble(time = rexp(.$rep, rate = .$rate),  # survival are exponentially distributed
+                                  status = 1,                         # there is no censoring
+                                  treat = .$treat, 
+                                  genotype = .$genotype)) %>%         # making list of tibble
+                  bind_rows()                                         # combine dfs
+
+# check the simulated_df
+head(simulated_df)
+```
+
+```{r}
+# cox proportional model of simulated_data
+coxph(Surv(time, status) ~ treat, data = simulated_df) %>% summary()  # HR = 1.59
+```
+
+We see that the estimate of the log hazard ratio treatment effect, $\hat{\beta}$, is 0.464. Since this is positive, higher hazards are associated with the treatment than with the control.    
+That is, the treatment appears to reduce survival, which would be an unfortunate result.    
+The value of $e^{\hat{\beta}} = 1.59$ is also given, suggesting (incorrectly, as we know) that the treatment is associated with a 59 % additional risk of death over the control.     
+<br />
+
+We can stratify on genotype, just as we did previously with the log-rank test, as follows:   
+
+```{r}
+coxph(Surv(time, status) ~ treat + genotype, data = simulated_df) %>% summary()
+```
+
+Now the coefficient is negative, indicating that, within each genotype, the treatment is effective.   
+With the Cox model, we also have the option of explicitly estimating the genetic effect.      
+Here we also see the correct treatment effect. We also see that the wild type genotype has lower hazard than the reference (mutant) genotype, and thus that the mutant genotype incurs additional risk of death.    
+<br />
+
+### Categorical and continuous covariates    
+The previous sections considered a partial likelihood for comparing two groups, indexed by a covariate $z$.    
+Since $z$ can take the values 0 or 1 depending on which of two groups a subject belongs to, this covariate is called an **indicator** or **dummy variable**.    
+Typically in survival analysis, as in linear or logistic regression, we will want to include in our model a variety of types of patient data.    
+In addition to group assignment for a randomized trial, we may have demographic information; examples might include the patient’s age, gender, race, and income level. Furthermore, there may be clinical variables, such as blood measurements and disease stage indicators.    
+All of this information will be encoded as covariates, some of which are continuous (e.g. age or blood pressure), and others which are categorical (e.g. gender or race).     
+<br />
+
+Categorical variables with only two levels can be handled with dummy variables as we did for treatment group.   
+For gender, for example, we arbitrarily choose one gender, say males, as the reference group and code that with a zero. Then females would be coded with a one.    
+With categorical variables with three or more variables, we will need multiple dummy variables.    
+
+Suppose, for example, that the variable “race” has four levels, “white”, “asian”, “black”, and “other”. We first need to select one level as a reference level, to which all the others will be compared.   
+This choice could be arbitrary, or driven by the goals of the research project. For example, if an important research question is how survival in non-white groups compares to survival in whites, one would select “white” as the reference variable.   
+Since there are four levels, we need to create three dummy variables, say, $z2$, $z3$, and $z4$ to represent “race”.   
+Then for a white patient, all three would take the value zero. For an Asian person, we would have $z2 = 1$, and $z1 = z3 = 0$.    
+For persons of race black or other, we make the corresponding assignments. In this model, at most one of the three dummy variables can be 1, and the others must be 0. (Dealing with persons of mixed race would be handled in a more complex way, certainly not by making more than one dummy variable take the value 1.)     
+Once we have settled on a set of k covariates, some of which are dummy variables and some continuous variables, we may write the model as follows:   
+
+$$
+\log(\psi_i) = z_{1i}\beta_1 + z_{2i}\beta_2 + \cdots + z_{ki}\beta_k
+$$
+
+For each covariate, the parameter $\beta_j$ is the log hazard ratio for the effect of that parameter on survival, adjusting for the other covariates.    
+For continuous covariates, it represents the effect of a unit change in the covariate; for dummy variables, it represents the effect of the corresponding level as compared to the reference covariate.   
+We will write this in more compact form as $\log(\psi_i) = z'_i\beta$ (for Patient $i$), where $z'_i$ (the transpose of $z_i$) is a $1 \times k$ matrix (i.e. a row matrix) of covariates, and $\beta$ is a $k \times 1$ matrix (i.e. a column matrix) of parameters.    
+
+We may enhance this model in two ways.   
+First, it is possible that a continuous variable is not linearly related to the log hazard.   
+In that case, we may consider transforming it using, say, a logarithmic or square root function before entering it into the model. Or we can enter a variable twice, once as a linear variable and once as the square of that variable.    
+Another choice is to “discretize” a variable. For example, an age variable could be split into three pieces, “under 50” and “50-64”, and “65 and above” and entered into the model as a categorical variable.     
+
+The second enhancement to the model is to incorporate interaction terms.   
+For example, suppose that gender and age do not contribute additively to the log hazard. Then one can directly enter into the model gender and age and also an interaction term constructed as the product of age and gender. Interactions with categorical variables with more than two levels are also possible.    
+For example, the interaction of age with race (with four levels, say) would involve adding three terms composed of the product of age with the three race dummy variables.    
+<br />
+
+While these models are similar to ones used in linear and logistic regression, there are also some key differences.    
+For example, since survival data evolve over time, there is a possibility that some covariate values may also change as time passes.   
+Initially, however, we require that all covariates are fixed at the beginning of the trial, and thus cannot change in response to evolving conditions.   
+For example, if there are two treatment groups, the assignment to a group must be made at time 0, and not depend on anything that may happen later in the trial.    
+
+Time-related variables such as age must also be defined by taking their value at the beginning of the trial.   
+For example, in a clinical trial, “age” might be defined as the age at the time of randomization, so that it’s value is fixed even though (obviously) patients will age as the trial progresses.   
+Later we will see how to modify the model to accommodate time-varying covariates.     
+<br />
+
+Another way that proportional hazards models differ from those used in other types of regression is that there is no intercept term; if there were one, it would appear in both the numerator and denominator of the partial likelihood, and cancel out just as the baseline hazard canceled out.   
+Another way to think of it is that any intercept term would be absorbed into the baseline hazard.    
+<br />
+
+*Example*   
+Suppose that we have two black patients, two white patients, and two patients of other races, with ages 48, 52, 87, 82, 67, and 53, respectively. We may enter these data values as follows:    
+
+```{r}
+df_race_age <- tibble(race = rep(c("black", "white", "other"), each = 2), 
+                      age = c(48, 52, 87, 82, 67, 53))
+```
+
+We may create a matrix of dummy variables for race and also a column for age using the “model.matrix” function as follows:   
+
+```{r}
+model.matrix(~ race + age, data = df_race_age)[, -1]
+```
+
+Here we have removed the first column of the matrix (using the “􏰁1” selection), since it is a column of 1s for the intercept. As explained above, in survival analysis, we do not include an intercept term.    
+The first column contains indicators for “other race” and the second for “white race”; both are compared to “black race” here.    
+If we need to use whites as the reference, we can change the race factor to have “white” as the reference level,   
+```{r}
+df_race_age2 <- df_race_age %>% 
+  mutate(race = factor(race)) %>% 
+  mutate(race = relevel(race, ref = "white"))
+
+model.matrix(~ race + age, data = df_race_age2)[, -1]
+```
+
+In this example we have three covariates, say, $z1$, $z2$, and $z3$, the first two of which are dummy variables for black race and other race, and the third a continuous variable, age. For the first subject, a black 48-year old person, the log hazard ratio is    
+
+$$
+\log(\psi_1) = z_{11}\beta_1 + z_{12}\beta_2 + z_{13}\beta_3 = 
+1\times\beta_1 + 0\times\beta_2 + 48\times\beta_3
+$$
+
+Thus, $\beta_1$ represents the log hazard ratio for blacks as compared to whites, and $\beta_3$ represents the change in log hazard ratio that would correspond to a one-year change in age.    
+If we wish to include an interaction between race and age, we can express it as follows:     
+
+```{r}
+model.matrix(~ race + age + race:age, data = df_race_age2)[, -1]
+```
+
+The interaction terms (last two columns) are just the product of the first two columns and the third (age) column.  
+To show how models are incorporated into a survival problem, we will generate a small survival data set in this example:   
+
+*Example*  
+We first generate 60 ages between 40 and 80 at random:    
+The survival variables in our simulated data will be exponentially distributed with a particular rate parameter that depends on the covariates.    
+Specifically, we set the log rate parameter to have baseline -4.5, and the race variable to take the values 1 and 2 for “black” and “other” respectively, when compared to “white”. Finally, we let “age” increase the log rate by 0.05 per year:
+
+```{r}
+fct_race <- factor(rep(c("white", "black", "other"), each = 20))
+
+df_race_age3 <- tibble(age = runif(n = 60, min = 40, max = 80), 
+                       race = relevel(fct_race, ref = "white"), 
+                       log_rate_vec = -4.5 + rep(c(0, 1, 2), each = 20) + age * 0.05, 
+                       time = rexp(n = 60, rate = exp(log_rate_vec)), 
+                       status = rep(1, 60))
+
+head(df_race_age3)
+```
+
+Now we can fit a Cox proportional hazards model,   
+
+```{r}
+result_cox <- coxph(Surv(time, status) ~ race + age, data = df_race_age3)
+summary(result_cox)
+```
+
+We see that the coefficient estimates, `r round(result_cox$coef["raceblack"], 2)`, `r round(result_cox$coef["raceother"], 2)`, and `r round(result_cox$coef["age"], 2)`, are close to the true values from the simulation, (1, 2, and 0.05).    
+These estimates are log hazard ratios. To describe the estimated effect of, say, “black race” compared to “white race”, we can look at the “exp(coef)” column, and conclude that blacks have `r round(exp(result_cox$coef["raceblack"]), 2)` times the risk of death as do whites.    
+
+The model matrix for “race + age” is as discussed above, and is created within the `coxph` function.   
+The parameter estimates are maximum partial likelihood estimates. The Z test statistics and p-values for statistical tests are generalizations of the two-group comparison Wald tests described in the previous section.    
+In the next section, we discuss how to handle proportional hazards models such as this one where there are multiple covariates.     
+
+### Hypothesis testing for nested models    
+Now that we have the tools to fit models with multiple covariates, let’s use these tools to compare models for the `pharmacoSmoking` data, which was introduced in Chapter 1.    
+
+```{r}
+glimpse(pharmacoSmoking)
+```
+
+When constructing statistical tests, it is necessary to compare what are called “nested” models.    
+That is, when comparing two models, the covariates of one model must be a subset of the covariates in the other. For example, consider the following two models, which we define by listing the covariates to be included in the proportional hazards model:    
+
++ **Model A: ageGroup4**    
++ **Model B: employment**   
++ **Model C: ageGroup4 + employment**     
+
+Here, Model A is nested in Model C, and Model B is also nested in Model C, so these models can be compared using statistical tests.   
+But Models A and B can’t be directly compared in this way. Now, “ageGroup4” and “employment” are covariates with four and three levels, respectively:     
+
+```{r}
+levels(pharmacoSmoking$ageGroup4)
+levels(pharmacoSmoking$employment)
+```
+
+where “ft” and “pt” refer to full-time and part-time employment, respectively. When we fit these models in R, it will by default choose the first level as the reference level:      
+
+```{r}
+# fit cox proportional model
+modelA_coxph <- coxph(Surv(ttr, relapse) ~ ageGroup4, data = pharmacoSmoking)
+modelB_coxph <- coxph(Surv(ttr, relapse) ~ employment, data = pharmacoSmoking)
+modelC_coxph <- coxph(Surv(ttr, relapse) ~ ageGroup4 + employment, data = pharmacoSmoking)
+
+# glimpse models
+modelA_coxph
+modelB_coxph
+modelC_coxph
+```
+
+From the results of Model C, we can see that some levels of the predictors are statistically significant based on the Wald tests in the last column.     
+<br />
+
+For example, we see that the “50-64” age group has a lower hazard when compared to the reference (which we noted above is the “21-34” age group), with log-hazard ratio of -1.024 and a p-value of 0.0043.    
+We also see that those with other employment have a higher hazard when compared to the baseline (which we noted above is the “full-time” group), with a log-hazard ratio of 0.526 and a p-value of 0.056, which may be seen as not quite statistically significant at the 0.05 level.     
+But we cannot easily see from these p-values whether or not the term “ageGroup4” or the term “employment” belong in the model.    
+These we can assess using a (partial) likelihood ratio test. The log-likelihoods for the three models are as follows:     
+
+```{r}
+# likelihood ratio test
+lst_logLik <- map(list(modelA_coxph, modelB_coxph, modelC_coxph), logLik)
+names(lst_logLik) <- c("A", "B", "C")
+lst_logLik
+```
+
+Let us begin by determining if “employment” belongs in the model by comparing Models A and C.    
+The null hypothesis is that the three coefficients for “employment” are zero, and the alternative is that they are not all zero.    
+The likelihood ratio statistic is     
+
+$$
+2(l(\hat{\beta}_{full}) - l(\hat{\beta}_{reduced})) = 
+2(-377.7597 + 380.043) = 4.567
+$$
+
+This is twice the difference between the partial log-likelihood evaluated at the “full” model (Model C) and the value at the “reduced” model (Model A), We compare this to a chi-square distribution with $5-3=2$ degrees of freedom, which is the difference in degrees of freedom for the two models. The p-value is thus   
+
+```{r}
+pchisq(4.567, df = 2, lower.tail = FALSE)
+```
+
+We thus conclude that “ageGroup4” belongs in the model if “employment” is also included, since the p-value for the former is extremely small.     
+Should “ageGroup4” alone be in the model? To carry out a likelihood ratio test for this factor we need to refer to what we shall call the “null” model, one with no covariates. We may evaluate this as follows:    
+
+```{r}
+model_null_coxph <- coxph(Surv(ttr, relapse) ~ 1, data = pharmacoSmoking)
+logLik(model_null_coxph)  # -386.1533 (df=0)
+```
+
+(The “logLik” function also returns a warning connected to having zero degrees of freedom. We may ignore this, since the value of the log likelihood is correct.) This null model is nested within Model A (and is actually nested in all other models), so we may compute the likelihood ratio test as follows:   
+
+$$
+2(l(\hat{\beta}_{full}) - l(\hat{\beta}_{reduced})) = 
+2(-380.043 + 386.1533) = 12.2206
+$$
+which we compare to a chi-square distribution with $3-0=3$ degrees of freedom:    
+
+```{r}
+pchisq(12.2206, df = 3, lower.tail = FALSE)
+```
+
+This result, which shows that “ageGroup4” by itself is strongly statistically significant, is identical to the results given above in the output from Model A.    
+In fact, the function `coxph` always prints the value of the likelihood ratio test for the fitted model as compared to the null model.     
+Since the reference model is always the null model, another way to carry out the likelihood ratio test for, for example, Model A to Model C, is to take the differences of the printed log-likelihood statistics, e.g., $16.8-12.2=4.6$, which (to one decimal place) is identical to the value we computed using the `logLik` function.       
+A more direct way to compare models is using the “anova” function, which directly computes test statistic, degrees of freedom, and p-value:      
+<br />
+       
+```{r}
+anova(modelA_coxph, modelC_coxph)
+```
+
+### The Akaike Information Criterion for comparing non-nested models   
+When we have a specific hypothesis to test, the methods of the previous section are appropriate.    
+But often we have a large number of potential factors and need to prune the model so that only necessary covariates are included. There are a number of tools available to aid this process.   
+<br />
+
+A well-known method is “stepwise” model selection. In the “forward” version of this method, we first fit univariate models, one for each covariate.    
+The covariate with the smallest p-value is chosen and added to the base model.   
+Then, with that covariate included, a separate model is fitted with each single additional covariate also included. We then select the best second variable (the one with the smallest p-value), so that we have a model with two covariates.     
+We continue until no additional covariate has a p-value less than a certain critical value; common critical p-values are 5 % and 10 %.   
+The result is the “final” model, presumably including all the covariates that are related to the outcome, and excluding the ones unrelated to it.     
+<br />
+
+In another version, known as the “backwards” stepwise procedure, we start with all the covariates in the model, and then remove them one by one, each time removing the one with the largest p-value.    
+The procedure continues until the p-values are below the critical p-value.  
+<br />
+
+There are a number of problems with the stepwise procedure.   
+For one thing, due to multiple comparisons, the p-values that are produced from one stage to the next are not what they appear to be. Thus, the decision criterion for model selection (e.g. to continue until all p-values are less than a particular value, often 0.05) does not necessarily produce a list of covariates that are statistically significant at that level.     
+Another problem is that p-values are only valid for nested models, as discussed in the previous section. Thus, this procedure does not allow one to compare non-nested models.     
+<br />
+
+A better way of looking at the model search procedure is to compute a quantity known as the **Akaike Information Criterion**, or **AIC**. This quantity is given by $AIC = -2(l(\hat{\beta}) - k)$, where $l(\hat{\beta})$ denotes the value of the partial log likelihood at the *M.P.L.E.* for a particular model, and $k$ is the number of parameters in the model.    
+The value of the AIC balances two quantities which are properties of a model.    
+The first is goodness of fit, $-2\cdot l(\hat{\beta})$. This quantity is smaller for models that fit the data well.    
+The second quantity, the number of parameters, is a measure of complexity. This enters the AIC as a penalty term.     
+Thus, a “good” model is one that fits the data well (small value of $-2\cdot l(\hat{\beta})$) with few parameters ($2k$), so that smaller values of AIC should in theory indicate better models.    
+<br />
+
+For example, again considering the `pharmacoSmoking` model, we can compute the AIC for model A as follows:   
+
+$$
+AIC = -2 \times (-380.043-2) = 766.086
+$$
+
+But it is more convenient to use the `AIC` function:     
+
+```{r}
+# likelihood ratio test
+lst_AIC <- map(list(modelA_coxph, modelB_coxph, modelC_coxph), AIC)
+names(lst_AIC) <- c("A", "B", "C")
+lst_AIC
+```
+
+The best fitting model from among these three, using the AIC criterion, is then Model C. This is the model that includes both “ageGroup4” and “employment”.    
+Model A, which includes only “ageGroup4”, is a close second choice.    
+While we could in principle compute the AIC for all possible combinations of covariates, in practice this may be computationally impractical.    
+An alternative is to return to the stepwise procedure, using AIC (instead of p-values) to drive the covariate selection.    
+<br />
+
+Here is an example for the `pharmacoSmoking` data, where we start with all of the covariates, and use the `step` function to find a more parsimo- nious model using the AIC criterion.          
+The terms in the model are listed in order from the one which, when deleted, yields the greatest AIC reduction (“race” in this case) to the smallest reduction (“ageGroup4”). Thus, “race” is deleted. This procedure continues until the last step:   
+
+```{r}
+# "full_formula"
+full_formula <- ~ grp + gender + race + employment + yearsSmoking + levelSmoking +
+ageGroup4 + priorAttempts + longestNoSmoke
+
+# make "full_model"
+model_All_coxph <- coxph(Surv(ttr, relapse) ~ grp + gender + race + employment + 
+                           yearsSmoking + levelSmoking +ageGroup4 + priorAttempts + 
+                           longestNoSmoke, data = pharmacoSmoking)
+
+# stepwise method
+(step_result <- step(model_All_coxph, scope = list(upper = full_formula, lower = ~ grp)))
+```
+
+The “+” sign shows the effect on AIC of adding certain terms.    
+This table shows that no addition or subtraction of terms results in further reduction of the AIC. The coefficient estimates for the final model are      
+
+```{r}
+step_result
+```
+
+We may display these results as a forest plot in Fig (see appendix for a discussion of forest plots),     
+
+```{r}
+ggforest(step_result)
+```
+
+This is a plot of the coefficient estimates and 95 % confidence intervals, each with respect to a reference level.    
+For example, we can see that triple therapy (the reference) is better than the patch alone, that those with full-time work (the reference) have a better success rate than those working part time and those with the “other” employment status. We also see that the upper age groups (50 and above) had better results than younger patients.     
+<br />
+
+An alternative to the AIC is the **Bayesian Information Criterion**, sometimes called the **Schwartz criterion**. It is given by    
+
+$$
+BIC = -2log(L) + k \cdot \log(n)
+$$
+
+The key difference is that the BIC penalizes the number of parameters by a factor of $\log(n)$ rather than by a factor of 2 as in the AIC. As a result, using the BIC in model selection will tend to result in models with fewer parameters as compared to AIC.     
+<br />
+
+### Including smooth estimates of continuous covariates in a survival model    
+When a covariate is continuous, we are interested in whether that covariate is related to survival and, if so, in what manner. That is, is the relationship to the log-hazard linear? Or is it a quadratic or other non-linear relationship?    
+Let us consider again the pharmacoSmoking data.    
+We found, in the previous section, that treatment group, employment status, and age are related to time to relapse. We entered “age” in the model by dividing it into four age groups, 21-34, 35-49, 50-64, and 65 and older, and found that the two older age groups were associated with increased time to relapse as compared to the two younger groups.    
+From before Fig we see that this relationship (on the log-hazard ratio scale) appears not to be linear.    
+<br />
+
+An alternative way to model a non-linear relationship is via **smoothing splines**.   
+Splines are mathematical constructs made of pieces of polynomial functions that are stitched together to form a smooth curve. The points where these pieces are joined are called **knots**.       
+The challenges in using smoothing splines are, first, to select the location of the knots, and second, to find an optimal set of polynomials to model the statistical relationship.    
+<br />
+
+A classical treatment of splines is de Boor, and their use in statistics has been discussed by many authors.    
+In survival analysis, an effective method of finding a smoothing spline is via **penalized partial likelihood.**   
+The quantity to be optimized consists of two parts, the *partial log likelihood* discussed in earlier chapters, and a *penalty term*.    
+Splines with many knots are complex and tend to increase the partial log-likelihood, since they improve the fit of the model. The penalty term is an integral of the second derivative, so that increasing complexity of the spline curve decreases this second term.      
+The sum of these two parts, the penalized partial log-likelihood, is a quantity that, when maximized, balances goodness of fit against complexity.     
+<br />
+
+This `pspline` function may be used with `coxph` to fit a smoothing spline to the pharmacoSmoking data as follows:    
+
+```{r}
+# cox propotinal model
+# age is fitted as a liner and nonlinear component
+modelS4_coxph <- coxph(Surv(ttr, relapse) ~ grp + employment + pspline(age, df = 4), 
+                       data = pharmacoSmoking)
+modelS4_coxph
+```
+
+We see, as we saw previously, that “grp”, “employment”, and “age” are important predictors of the log-hazard.   
+Now, however, the continuous variable “age” is fitted as a linear component and a nonlinear component.    
+The linear component is -0.0339, indicating that older individuals have a lower log hazard of relapse.    
+The non-linear component, with a p-value of 0.25, is not statistically significant, indicating that there is not enough data to state definitively that the relationship is non-linear.    
+<br />
+
+We may plot the relationship of age to log hazard using the `termplot` function:    
+
+```{r}
+termplot(modelS4_coxph, se = TRUE, terms = 3, ylab = "log-hazard")
+```
+
+The option “se=T” produces the confidence limits, and the “terms=3” option specifies that the third variable (age) is the one we want to plot.    
+The plot is shown in above plot.    
+This shows a decreasing relationship with age, as we have seen previously, with a slight upward turn after age 65.    
+However, the data is rather sparse at these older ages, as reflected by the wide confidence interval.    
+Thus, this confirms our observation that the departure from linearity cannot be established.    
+<br />
+
+### Exercises   
+1. The data set `hepatocelluar` is in the `asaur` package.    
+It contains 17 clinical and biomarker measurements on 227 patients, as well as overall survival and time to recurrence, both recorded in months.    
+
+```{r}
+glimpse(hepatoCellular)
+```
+
+There are three measures of CXCL17 activity, CXCL17T (intratumoral), CXCL17P (peritumoral), and CXCL17N (nontumoral).     
+There is a particular interest in whether they are related to overall and also recurrence-free survival.    
+Which of the three is most strongly related for each survival outcome?     
+For the one most strongly related with survival, fit a spline model and plot it. Does this suggest that categorizing CXCL17 would be appropriate?     
+
+```{r}
+# Make models OS vs CXCL17T, CXCL17P, CXCL17N
+model_OS_CXCL17T <- coxph(Surv(OS, Death) ~ CXCL17T, data = hepatoCellular)
+model_OS_CXCL17P <- coxph(Surv(OS, Death) ~ CXCL17P, data = hepatoCellular)
+model_OS_CXCL17N <- coxph(Surv(OS, Death) ~ CXCL17N, data = hepatoCellular)
+
+# Make models RFS vs CXCL17T, CXCL17P, CXCL17N
+model_RFS_CXCL17T <- coxph(Surv(RFS, Recurrence) ~ CXCL17T, data = hepatoCellular)
+model_RFS_CXCL17P <- coxph(Surv(RFS, Recurrence) ~ CXCL17P, data = hepatoCellular)
+model_RFS_CXCL17N <- coxph(Surv(RFS, Recurrence) ~ CXCL17N, data = hepatoCellular)
+
+# result of loglikeky of OS_models
+lst_model_OS <- list(CXCL17T = model_OS_CXCL17T, 
+                     CXCL17P = model_OS_CXCL17P, 
+                     CXCL17N = model_OS_CXCL17N)
+
+# result of loglikeky of RFS_models
+lst_model_RFS <- list(CXCL17T = model_RFS_CXCL17T, 
+                      CXCL17P = model_RFS_CXCL17P, 
+                      CXCL17N = model_RFS_CXCL17N)
+```
+
+```{r }
+# glimpse log-likely
+map(lst_model_OS, logLik)    # CXCL17P most fit
+map(lst_model_RFS, logLik)   # CXCL17P most fit
+```
+
+```{r}
+# plot spline OS vs CXCL17P
+termplot(coxph(Surv(OS, Death) ~ pspline(CXCL17P), data = hepatoCellular), 
+         terms = 1, se = TRUE, ylabs = "log-OS-hazard")
+
+# plot spline RFS vs CXCL17P
+termplot(coxph(Surv(RFS, Recurrence) ~ pspline(CXCL17P), data = hepatoCellular), 
+         terms = 1, se = TRUE, ylabs = "log-RFS-hazard")
+```
+
+2. For the covariates with complete data (in Columns 1–22), use stepwise regression with AIC to identify the best model for (a) overall survival, and (b) recurrence-free survival.   
+
+```{r}
+hepatoCellular_complete <- hepatoCellular %>% 
+  tbl_df() %>% 
+  select(1:21)
+
+# make full_formula
+full_formula_hepato <- ~ Age + Gender + HBsAg + Cirrhosis + ALT + AST + AFP + Tumorsize + 
+                         Tumordifferentiation + Vascularinvasion + Tumormultiplicity + Capsulation + 
+                         TNM + BCLC + CXCL17T + CXCL17P
+  
+# OS vs full_model
+full_model_OS <- coxph(Surv(OS, Death) ~ Age + Gender + HBsAg + Cirrhosis + ALT + 
+                                         AST + AFP + Tumorsize + Tumordifferentiation + 
+                                         Vascularinvasion + Tumormultiplicity + Capsulation + 
+                                         TNM + BCLC + CXCL17T + CXCL17P, 
+                       data = hepatoCellular)
+
+# RFS vs full_model
+full_model_RFS <- coxph(Surv(RFS, Recurrence) ~ Age + Gender + HBsAg + Cirrhosis + ALT + 
+                                                AST + AFP + Tumorsize + Tumordifferentiation + 
+                                                Vascularinvasion + Tumormultiplicity + Capsulation + 
+                                                TNM + BCLC + CXCL17T + CXCL17P, 
+                        data = hepatoCellular)
+
+# stepwise in OS
+step_result_OS <- step(full_model_OS, scope = list(upper = full_formula_hepato, lower = ~ CXCL17P))
+step_result_OS
+
+# stepwise in RFS
+step_result_RFS <- step(full_model_RFS, scope = list(upper = full_formula_hepato, lower = ~ CXCL17P))
+step_result_RFS
+```

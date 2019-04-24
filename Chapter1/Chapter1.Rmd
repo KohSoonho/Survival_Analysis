@@ -1,0 +1,215 @@
+---
+title: "Chapter 1: Introduction"
+output: html_document
+---
+```{r include = FALSE}
+library(tidyverse)
+```
+
+### A key characteristic of suvival data  
+
+1. The response variable is a non-negative discrete or continuous random variable, and represents the time from a well- defined origin to a well-defined event  
+
+2. **Censoring** : Arises when the starting or ending events are not precisely observed  
+
+***T**** : random variable representing the time to failure      
+イベントが観察されるまでの時間    
+***U*** : random variable representing the time to a censoring event      
+打ち切りが起こるまでの時間    
+
+***T*** : what we observe is **min**(***T**** , ***U***)    
+イベントが観察されればイベントが起こるまでの***T**** 観察されなければ打ち切りまでの***U***を***T***とする    
+
+***&delta;*** : censoring indicator is ***I*** [***T**** < ***U***]   
+(***&delta;*** is 0 or 1 according to whether ***T*** is a censored time or an observed failure time)    
+
+**censoring have three type**  
+
++ **Type I censoring** : The censoring times are pre-specified     
+特定の時間観察し終われば打ち切り    
+ex) in an animal experiment, a cohort of animals may start at a specific time, and all followed until a pre-specified ending time.       
+
++ **Type II censoring** : Occurs when the experimental objects are followed until a pre-specified fraction have failed.    
+集団のうち一定の割合にイベントが起これば打ち切り    
+(Such a design is rare in biomedical studies, but may be used in industrial settings, where time to failure of a device is of primary interest.)     
+ex) An example would be one where the study stops after, for instance, 25 out of 100 devices are observed to fail. The remaining 75 devices would then be censored.   
+
++ **random censoring** : Careful attention to the cause of the censoring is essential in order to avoid biased survival estimates!    
+  + **administrative censoring** 下図参照   
+  + **drop out**    
+  + **competing events**    
+
+**Figure 1.1: presents data from a hypothetical clinical trial**    
+<br />
+<img src = "/Users/atsuhirokou/Survival_Analysis/Chapter1/Figure1.1.png" width=30%>
+<br />
+<br />
+Six patients were entered over a 2.5-year accrual period which ran from January 1, 2000 until June 30, 2002.  
+This was followed by 4.5 years of additional follow-up time, which lasted until December 31, 2007.    
+For three patients (Patients 1, 3 and 4), we have incomplete information about their survival time!  
+(We know that Patient 1 survived at least 7 years, but as of the end of 2007 it would not have been known how long the patient would ultimately live.)  
+<br />
+**Figure 1.2: this data set in terms of patient time, where each patient is shown as starting at time zero**    
+<br />
+<img src = "/Users/atsuhirokou/Survival_Analysis/Chapter1/Figure1.2.png" width=30%>
+<br />
+<br />
+Three of the patients (Patient 2, 5 and 6) have complete information; that is, we know when they started the trial and when they died.  
+The other three patients (Patient 1, 3 and 4) were right-censored; for these patients, the last follow-up times (the last times at which the patient is known to be alive) are indicated by open circles.  
+<br />
+<br />
+**Table1.1: data be represented in tabular form**    
+```{r }
+tribble(
+  ~ Patient, ~ Survtime, ~ Status, 
+  1, 7, 0, 
+  2, 6, 1, 
+  3, 6, 0, 
+  4, 5, 0, 
+  5, 2, 1, 
+  6, 4, 1
+)
+```
+
+The variable “Survtime” refers to the time from entry into the trial until death or loss to follow-up, whichever comes first, and “Status” indicates whether the survival time represents an event (Status = 1) or is censored (Status = 0).  
+<br />
+<br />
+  
+**Administrative censoring** has the property that the censoring mechanism is (ordinarily) independent of the survival mechanism, and such censoring can be accommodated using the techniques described in the remainder of the book.     
+このようなcensoringは比較的対処が簡単!      
+
+**drop-out**    
+If patients drop out for reasons unrelated to the outcome, this form of censoring, like that due to patients remaining alive at the end of the follow-up period, is said to be **non-informative**, and can be directly accommodated using the methods to be discussed in the next few chapters.  
+**Informative censoring**, by contrast, may (for example) result if individuals in a clinical trial tend to drop out of the study (and become lost to follow-up) for reasons related to the failure process.  
+**This type of censoring can introduce biases into the analysis that are difficult to adjust for.**    
+<br />
+治療の成績が悪くなったためにdrop outした場合はbiasの原因になる。このようなcensoringに対しては注意深い対応が必要となる。     
+<br />
+<br />
+
+### Some examples of survival data sets  
+The data sets may be obtained by package `asaur`  
+
+```{r}
+library(asaur)
+```
+
++ *Example 1. Xeloxinpatientswithadvancedgastriccancer* 
+
+This is a Phase II (single sample) clinical trial of Xeloda and oxaliplatin (XELOX) chemotherapy given before surgery to 48 advanced gastric cancer patients with para- aortic lymph node metastasis.  
+An important survival outcome of interest is progression-free survival, which is the time from entry into the clinical trial until progression or death, whichever comes first.  
+
+```{r}
+gastricXelox %>% rownames_to_column(var = "ID") %>% slice(23:27)
+```
+The first column is a patients ID.
+The second is a list of survival times, rounded to the nearest week.  
+The third is “delta”, which is the censoring indicator.  
+<br />
+For example, for patient number 23, the time is 42 and delta is 1, indicating that the observed endpoint (progression or death) had been observed 42 weeks after entry into the trial.  
+For patient number 25, the time is 43 and delta is 0, indicating that the patient was alive at 43 weeks after entry and no progression had been observed.  
+<br />
+
++ *Example 2. Pancreatic cancer in patients with locally advanced or metastatic disease*
+
+This is also a single sample Phase II study of a chemotherapeutic compound, and the main purpose was to assess overall survival and also “progression-free survival”, which is defined as the time from entry into the trial until disease progression or death, whichever comes first.  
+A secondary interest in the study is to compare the prognosis of patients with locally advanced disease as compared to metastatic disease.  
+
+```{r}
+head(pancreatic)
+```
+
+Patient #3, a patient with locally advanced disease (stage = “LA”), entered the study on February 3, 2006.  
+That person was found to have progressive disease on August 2 of that year, and died on January 19 of the following year.  
+Patient #4, a patient with metastatic disease (stage = “M”), entered on March 30 2006 and died on May 11 of that year, with no recorded date of progression.  
+<br />
+
++ *Example 3. Survival prospects of prostate cancer patients with high-risk disease*  
+
+In this data set there are two outcomes of interest, death from prostate cancer and death from other causes, so we have what is called a competing risks survival analysis problem.   
+
+```{r}
+prostateSurvival %>% slice(88:95)
+```
+ 
+(an indicator [“status”] for whether the patient died of prostate cancer [status = 1], died of some other cause [status = 2], or was still alive at the date last seen [status = 0].)  
+<br />
+
++ *Example 4. Comparison of medical therapies to aid smokers to quit*  
+
+The purpose of this study was to evaluate extended duration of a triple-medication combination versus therapy with the nicotine patch alone in smokers with medical illnesses.  
+Patients with a history of smoking were randomly assigned to the triple-combination or patch therapy and followed for up to six months.  
+The primary outcome variable was time from randomization until relapse (return to smoking); individuals who remained non-smokers for six months were censored.  
+
+```{r}
+pharmacoSmoking %>% slice(1:6) %>% select(2:8)
+```
+
+“ttr” is the number of days without smoking (“time to relapse”).  
+“relapse=1” indicates that the subject started smoking again at the given time.  
+“grp” is the treatment indicator.  
+“employment” can take the values “ft” (full time), “pt” (part time), or “other”.  
+<br />
+
++ *Example 5. Prediction of survival of hepatocellular carcinoma patients using biomarkers*  
+
+This study focused on using expression of a chemokind known as CXCL17, and other clinical and biomarker factors, to predict overall and recurrence-free survival.  
+
+```{r}
+hepatoCellular %>% slice(c(1:3, 65, 71)) %>% select(c(2:3, 16:20, 24, 47))
+```
+
+The survival outcomes are “OS” (overall survival) and “RFS” (recurrence-free sur- vival), and the corresponding censoring indicators are “Death” and “Recurrence”.  
+<br />
+<br />
+
+### Excerscises  
+
+1. Consider a simple example of five cancer patients who enter a clinical trial as illustrated in the following diagram:  
+
+<img src = "/Users/atsuhirokou/Survival_Analysis/Chapter1/ex1-1.png" width=30%>
+<br />
+Re-write these survival times in terms of patient time, and create a simple data set listing the survival time and censoring indicator for each patient.  
+How many patients died?  
+How many person-years are there in this trial?  
+What is the death rate per person-year?  
+
+```{r}
+# Create simple data frame of patients
+df <- data_frame(
+  patiens = 1:5, 
+  start = c(1990, 1990, 1991, 1991, 1992), 
+  end   = c(1995, 1995, 1995, 1994, 1993), 
+  event = c(0, 0, 1, 1, 1), 
+  duration = end - start
+)
+
+df
+
+# Re-write survival times
+ggplot(df, aes(x = patiens, y = duration)) + 
+  geom_linerange(aes(ymin = 0, ymax = duration)) + 
+  geom_point(aes(shape = factor(event)), size = 3) + 
+  scale_x_reverse() + 
+  coord_flip() + 
+  labs(shape = "Event") + 
+  scale_shape_manual(values = c(1, 4), 
+                     labels = c("Not obsrved", "Observed"))
+
+# Ansew questions
+df %>% 
+  summarise(number_of_death = sum(event == 1), 
+            person_years = sum(duration), 
+            death_rate = number_of_death / person_years)
+```
+
+2. For the `gastricXelox` dataset, use R to determine how many patients had the event (death or progression), the number of person-weeks of follow-up time, and the event rate per person-week.  
+
+```{r}
+gastricXelox %>% 
+  summarise(number_of_patients = n(), 
+            number_of_events = sum(delta == 1), 
+            person_weeks = sum(timeWeeks), 
+            event_rate = number_of_events / person_weeks)
+```
+

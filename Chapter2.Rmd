@@ -1,0 +1,621 @@
+---
+title: "Chapter 2: Basic Principles of Survival Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+library(survminer)
+```
+
+### The hazard and survival function  
+The *survival function* defines the probability of surviving up to a point *t*.  
+
+$$
+S(t) = pr(T > t), \;\; 0 < t < \infty
+$$
+This function takes the value 1 at time 0, decreases (or remains constant) over time, and of course never drops below 0.  
+<br />
+The survival function is often defined in terms of the hazard function, which is the instantaneous failure rate.  
+It is the probability that, given that a subject has survived up to time *t* ($pr(T > t)$),
+he or she fails in the next small interval of time ($\delta\to 0$), 
+divided by the length of that interval ($pr(t < T < t + \delta)$).  
+
+$$
+h(t) = \lim_{\delta\to 0}\frac{pr(t < T < t + \delta \; | \; T > t)}{\delta}\\
+$$
+<br />
+![](Fig2.1.png)  
+<br />
+high mortality early in life: hazard function (a) and the corresponding survival function (b)  
+low initial hazard of death: hazard function (c) and the corresponding survival function (d)  
+<br />  
+
++ Example 1: US males and females in 2004  
+<br />
+![](Fig2.2.png)  
+<br />
+
++ The initial days and weeks of life are particularly dangerous, and the risk recedes rapidly after the first month of life.  
++ The hazard increases during the teen years, then levels off, until it starts a steady increase in midlife.  
++ Males exhibit a higher mortality than females, as is well-known.  
+  
+The corresponding survival function is also shown. This example also demonstrates that the hazard function may show details of changes in risk that may not be apparent in the survival curves.  
+
+<br />
+
+### Other representations of a survival distribution  
+
+The cumulative distribution function (CDF), which is commonly used outside of survival analysis, is given by  
+$$
+F(t) = pr(T \leq t), \;\; 0 < t < \infty
+$$
+In survival analysis, this function is known as the *cumulative risk function* (not to be confused with the cumulative hazard defined below).  
+<br />
+The probability density function $f(t)$ (PDF), is given by  
+$$
+\begin{align}
+f(t) &= \frac{t}{dt}\ F(t) \\
+     &= \frac{t}{dt}\ (1- S(t)) = - \frac{t}{dt}\ S(t) 
+\end{align}
+$$
+is the rate of change of the CDF, or minus the rate of change of the survival function.  
+<br />
+The hazard function is related to the PDF and survival functions by  
+$$
+\begin{align}
+h(t) &= \lim_{\delta\to 0}\frac{pr(t < T < t + \delta \; | \; T > t)}{\delta}\\
+     &= \lim_{\delta\to 0}\frac{\frac{F(t + \delta) - F(t)}{S(t)}}{\delta}\\
+     &= \lim_{\delta\to 0}\frac{F(t + \delta) - F(t)}{\delta}\times\frac{1}{S(t)}\\
+     &= \frac{f(t)}{S(t)}
+\end{align}
+$$
+That is, the hazard at time *t* is the probability that an event occurs in the neighborhood of time *t* divided by the probability that the subject is alive at time *t*.  
+<br />
+The *cumulative hazard function* is defined as the area under the hazard function up to time t, that is,  
+
+$$
+\begin{align}
+H(t) &= \int_{0}^{t}h(u)du\\
+     &= \int_{0}^{t}\frac{f(u)}{S(u)}du\\
+     &= \int_{0}^{t}\frac{S'(u)}{S(u)}du\\
+     &= -(\log S(t) - \log S(0))\\
+     &= -\log S(t) - log 1 \;\;\; (S(0) = 1)\\
+     &= -\log S(t)
+\end{align}
+$$
+
+
+The survival function may be defined in terms of the hazard function by  
+
+$$
+\begin{align}
+S(t) &= \exp(-\int_{0}^{t} h(u)du \:) = \exp(-H(t))
+\end{align}
+$$
+
+It is the relationship that allows us to compute the survival function corresponding to a hazard function.  
+<br />
+<br />
+
+### Mean and median survival time  
+The mean survival is the expected value of the survival time,
+
+$$
+\begin{align}
+\mu &= E(T) = \int_{0}^{\infty} tf(t)dt\\
+    &= \int_{0}^{\infty} tS'(t)dt\\
+    &= \left[tS(t)\right]_0^\infty + \int_{0}^{\infty}S(t)dt\\
+    &= \int_{0}^{\infty}S(t)dt \;\;\; (S(\infty) = 0) \\
+\end{align}
+$$
+The mean survival time is only defined if $S(\infty) = 0$.  
+This might not be the case if, for example, the survival outcome is time to cancer recurrence, and some fraction *c* of the subjects are cured and thus have no recurrence.   
+In that case, $S(\infty) = c$, and the area under the survival curve is infinite.  
+The median survival time is defined as the time t such that $S(t) = 1/2$.  
+<br />
+<br />
+
+### Parametric survival distributions  
+#### expotential distribution
+Several survival distributions are available for modeling survival data.  
+The **exponential distribution**, the simplest survival distribution, has a constant hazard, $h(t) = \lambda$.
+<br />
+The cumulative hazard function may be easily derived using the relationships in the previous section:  
+
+$$
+H(t) = \int_{0}^{t} h(u)du = \lambda t
+$$
+
+The survival function is  
+$$
+S(t) = e^{-H(t)} = e^{-\lambda t}
+$$
+and the probability density function is given by  
+$$
+f(t) = h(t)S(t) = \lambda e^{-\lambda t}
+$$
+The mean of an exponential random variable is given by  
+$$
+\begin {align}
+E(T) &= \int_{0}^{\infty} S(t)dt\\
+     &= \int_{0}^{\infty} e^{-\lambda t}dt\\
+     &= 1/\lambda
+\end {align}
+$$
+The median is the value of *t* that satisfies $0.5 = e^{-\lambda t}$, so that $t_{med} = log(2)/\lambda$.  
+
+#### Weibull distribution  
+The exponential distribution is easy to work with, but the constant hazard assumption is not often appropriate for describing the lifetimes of humans or animals.  
+The **Weibull distribution**, which offers more flexibility in modeling survival data, has hazard function  
+
+$$
+h(t) = \alpha \lambda (\lambda t)^{\alpha - 1} = \alpha \lambda^{\alpha}t^{\alpha - 1} 
+$$
+The cumulative hazard and survival functions are given by, respectively,  
+
+$$
+\begin {align}
+H(t) &= \int_{0}^{t} h(t)dt\\
+     &= \int_{0}^{t} \alpha \lambda^{\alpha}t^{\alpha - 1}dt\\
+     &= (\lambda t)^{\alpha}
+\end {align}
+$$
+and  
+
+$$
+S(t) = e^{-(\lambda t)^{\alpha}}
+$$
+This plot shows the shape of the hazard for several parameter choices.  
+The exponential distribution is a special case with $\alpha = 1$.  
+It is monotone increasing for $\alpha > 1$ and monotone decreasing for $\alpha < 1$.  
+```{r}
+alpha = c(1.5, 1, 0.75)
+lambda = c(0.03, 0.03, 0.03)
+
+weibull <- function(alpha, lambda) {
+  function(t) {
+    alpha * (lambda ^ alpha) * (t ^ (alpha - 1))
+  }
+}
+
+func_list <- map2(alpha, lambda, ~ weibull(.x, .y))
+
+df <- tibble(x = 0:80)
+
+ggplot(df, aes(x)) + 
+  stat_function(fun = func_list[[1]], color = "red") +    # alpha = 1.5
+  stat_function(fun = func_list[[2]], color = "black") +  # alpha = 1
+  stat_function(fun = func_list[[3]], color = "blue") +   # alpha = 0.75
+  geom_text(aes(x = 40, y = 0.06), label = "alpha = 1.5, lambda = 0.03", color = "red") + 
+  geom_text(aes(x = 40, y = 0.033), label = "alpha = 1.0, lambda = 0.03", color = "black") + 
+  geom_text(aes(x = 40, y = 0.017), label = "alpha = 0.75, lambda = 0.03", color = "blue") + 
+  labs(title = "Weibull Hazard Function", x = "Time", y = "Hazard")
+  
+```
+
+The mean and median of the Weibull distribution are, respectively,   
+
+$$
+\begin {align}
+E(T) = \frac{\Gamma (1 + 1/\alpha)}{\lambda}\\
+t_{med } = \frac{(log2)^{1/\alpha}}{\lambda}\
+\end {align}
+$$
+
+For integers, the gamma function is given by $\Gamma (n) = (n - 1)!$.  
+For the special case $\alpha = 1$, of course, the mean and median are identical to those of the exponential distribution. For non-integers, it must be evaluated numerically; in R, this may be done using the `gamma` function.  
+ 
+In R the functions `dweibull` and `pweibull` compute the p.d.f. and c.d.f., respectively, of the Weibull distribution.  
+These functions use the arguments “shape” and “scale” to represent the parameters $\alpha$ and $1/\lambda$, respectively.  
+To obtain the survival function, we can specify “lower.tail = F” as an option in the “pweibull” function.  
+For example, we can plot the Weibull survival function with $\alpha = 1.5$ and $\lambda = 0.03$ by first defining a function “weibSurv” with these parameters and then using the “curve” function to plot the curve as follows:  
+
+```{r}
+weibSurv <- function(t, shape, scale) {
+  pweibull(t, shape = shape, scale = scale, lower.tail = F)
+}
+
+df <- tibble(x = 0:80)
+
+ggplot(df, aes(x = x)) + 
+  stat_function(fun = weibSurv, args = list(shape = 1.5, scale = 1 / 0.03), color = "red") + 
+  stat_function(fun = weibSurv, args = list(shape = 1.0, scale = 1 / 0.03), color = "black") + 
+  stat_function(fun = weibSurv, args = list(shape = 0.75, scale = 1 / 0.03), color = "blue") + 
+  geom_text(aes(x = 70, y = 0.98), label = "alpha = 1.5, lambda = 0.03", color = "red") + 
+  geom_text(aes(x = 70, y = 0.93), label = "alpha = 1.0, lambda = 0.03", color = "black") + 
+  geom_text(aes(x = 70, y = 0.88), label = "alpha = 0.75, lambda = 0.03", color = "blue") + 
+  labs(y = "Survival probability", x = "Time", title = "Weibull Survival")
+```
+
+To plot the hazard function with this shape and scale, we can use the following code to first define the hazard function as the p.d.f. divided by the survival function,  
+```{r}
+weibHaz <- function(x, shape, scale) {
+  dweibull(x, shape = shape, scale = scale) / pweibull(x, shape = shape, scale = scale, lower.tail = FALSE)
+}
+
+df <- tibble(x = 0:80)
+
+ggplot(df, aes(x)) + 
+  stat_function(fun = weibHaz, args = list(shape = 1.5, scale = 1 / 0.03), color = "red") +    # alpha = 1.5
+  stat_function(fun = weibHaz, args = list(shape = 1.0, scale = 1 / 0.03), color = "black") +  # alpha = 1
+  stat_function(fun = weibHaz, args = list(shape = 0.75, scale = 1 / 0.03), color = "blue") +  # alpha = 0.75
+  geom_text(aes(x = 40, y = 0.06), label = "alpha = 1.5, lambda = 0.03", color = "red") + 
+  geom_text(aes(x = 40, y = 0.033), label = "alpha = 1.0, lambda = 0.03", color = "black") + 
+  geom_text(aes(x = 40, y = 0.017), label = "alpha = 0.75, lambda = 0.03", color = "blue") + 
+  labs(title = "Weibull Hazard Function", x = "Time", y = "Hazard")
+
+```
+
+We may generate random variables from the exponential or Weibull distribution using the functions “rexp” and “rweib”. For example, we may generate 1000 Weibull random variables with shape 1.5 and scale 1/0.03, and compute their mean and median, as follows:  
+```{r}
+tt.weib <- rweibull(1000, shape = 1.5, scale = 1 / 0.03)
+mean(tt.weib)
+quantile(tt.weib, c(0.25, 0.5, 0.75))
+```
+The theoretical mean and median, using Eqs are as follows:  
+```{r}
+gamma(1 + 1 / 1.5) / 0.03      # mean
+(log(2) ^ (1 / 1.5)) / 0.03    # median
+```
+The empirical mean and median are close to their theoretical values, as they must be.  
+<br />
+The **gamma distribution** (not to be confused with the gamma function) provides yet another choice for survival modeling.  
+The probability density function is given by
+
+$$
+f(t) = \frac{\lambda^{\beta} t^{\beta - 1} \exp(-\lambda t)}{\Gamma (\beta)}
+$$
+It is monotone increasing $\beta > 1$ and monotone decreasing $\beta < 1$.  
+When $\beta = 1$, the gamma distribution reduces to an exponential distribution.  
+
+```{r}
+gammaHazard <- function(beta, lambda) {
+  function(t) {
+    dgamma(t, shape = beta, scale = 1 / lambda) / pgamma(t, shape = beta, scale = 1 / lambda, lower.tail = FALSE)
+  }
+}
+
+gammaSurvival <- function(beta, lambda) {
+  function(t) {
+    pgamma(t, shape = beta, scale = 1 / lambda, lower.tail = FALSE)
+  }
+}
+
+gamma_list <- map2(c(1.5, 1, 0.75), 0.03, ~ gammaHazard(beta = .x, lambda = .y))
+gamma_s_list <- map2(c(1.5, 1, 0.75), 0.03, ~ gammaSurvival(beta = .x, lambda = .y)) 
+
+ggplot(df, aes(x)) + 
+  stat_function(fun = gamma_list[[1]], color = "red") +    # beta = 1.5
+  stat_function(fun = gamma_list[[2]], color = "black") +  # beta = 1
+  stat_function(fun = gamma_list[[3]], color = "blue") +   # beta = 0.75
+  geom_text(aes(x = 40, y = 0.017), label = "beta = 1.5, lambda = 0.03", color = "red") + 
+  geom_text(aes(x = 40, y = 0.027), label = "beta = 1.0, lambda = 0.03", color = "black") + 
+  geom_text(aes(x = 40, y = 0.037), label = "beta = 0.75, lambda = 0.03", color = "blue") + 
+  labs(title = "Gamma Hazard Function", x = "Time", y = "Hazard")
+
+ggplot(df, aes(x)) + 
+  stat_function(fun = gamma_s_list[[1]], color = "red") +    # beta = 1.5
+  stat_function(fun = gamma_s_list[[2]], color = "black") +  # beta = 1
+  stat_function(fun = gamma_s_list[[3]], color = "blue") +   # beta = 0.75
+  geom_text(aes(x = 40, y = 0.98), label = "beta = 1.5, lambda = 0.03", color = "red") + 
+  geom_text(aes(x = 40, y = 0.93), label = "beta = 1.0, lambda = 0.03", color = "black") + 
+  geom_text(aes(x = 40, y = 0.88), label = "beta = 0.75, lambda = 0.03", color = "blue") + 
+  labs(title = "Gamma Survival Function", x = "Time", y = "Survival probability")
+
+```
+
+Other parametric families of survival distributions include the **log-normal** (see Exercise), **log-logistic**, **Pareto**, and many more.  
+<br />
+<br />
+
+### A brief introduction to maximum likelihood estimation  
+
+The previous sections show us how to compute probabilities for a specific prob-ability distribution (e.g., exponential, Weibull, gamma) for specified values of the parameters.  
+For example, if we know that a random variable *T* has an exponential distribution with parameter $\lambda = 0.03$, we can directly compute the probability that *T* exceeds a particular value.  
+But suppose that we have a series of observations $t_1, t_2, ..., t_n$ from an exponential distribution with unknown parameter $\lambda$.  
+How can we estimate $\lambda$?.  
+<br />  
+The theory of **maximum likelihood estimation** provides a mathematical framework for doing this.  
+We may get an overview of the technique by considering a simple example using the exponential distribution.  
+<br />
+We construct a likelihood by taking a product of terms from the exponential distribution, one for each observation. If there is no censoring, the likelihood function takes the general form  
+
+$$
+L(\lambda:t_1, t_2, ..., t_n) 
+  = f(t_1, \lambda)\cdot f(t_2, \lambda) \cdot\cdot\cdot\cdot f(t_n, \lambda) 
+  = \prod_{i = 1}^{n} f(t_i, \lambda)
+$$
+If some observations are censored, we have to make an adjustment to this expression.  
+For an observation of an observed death, we put in the p.d.f. as above.  
+But for a right-censored observation, we put in the survival function, indicating that observation is known only to exceed a particular value.  
+The likelihood in general then takes the form  
+
+$$
+L(\lambda:t_1, t_2, ..., t_n) 
+  = \prod_{i = 1}^{n} f(t_i, \lambda)^{\delta_i}\cdot S(t_i, \lambda)^{1 - \delta_i}
+  = \prod_{i = 1}^{n} h(t_i, \lambda)^{\delta_i}\cdot S(t_i, \lambda)
+$$
+This expression means that when $t_i$ is an observed death, the censoring indicator is $\delta_i = 1$, and we enter a **p.d.f.** factor.  
+When $t_i$ is a censored observation, we have $\delta_i = 0$ we enter a survival factor.  
+Alternatively, we may enter a hazard factor for each censored observation and a survival factor for every observation, censored or not.  
+<br />
+For the exponential distribution the likelihood, we substitute the expressions for the p.d.f. and survival distributions, and simplify as follows:  
+
+$$
+L(\lambda) = \prod_{i = 1}^{n}[\lambda e^{-t_i/\lambda}]^{\delta_i}[e^{-\lambda t_i}]^{1 - \delta_i}
+$$
+Alternatively, we may substitute a hazard factor $\lambda$􏰃 for the censored observations and asurvivalfactor $e^{-\lambda t_i}$ for allobservations.  
+This of course leads to the same form for the likelihood function.  
+<br />
+We have the total number of deaths, $d = \displaystyle \sum_{i = 1}^{n} \delta_i$  
+and amount of time of patients on the study, $V = \displaystyle \sum_{i = 1}^{n} t_i$  
+
+This latter term is known in epidemiology as person-years (or person-months or person-days, according to the time unit).  
+We need to find the value of $\lambda$ that maximizes this function, and that value is known as the ***maximum likelihood estimate***.  
+Now, this product formula is difficult to work with, so we use a logarithmic transformation to convert it into a sum, known as the ***log-likelihood***,  
+
+$$
+\begin{align}
+l(\lambda) &= \log{L(\lambda)} = \log{(\prod_{i = 1}^{n} h(t_i, \lambda)^{\delta_i}\cdot S(t_i, \lambda))}\\
+           &= \displaystyle \sum_{i = 1}^n\delta_i \cdot \log{h(t_i, \lambda)} +
+              \displaystyle \sum_{i = 1}^n\log{S(t_i, \lambda)} \\
+           &= \displaystyle \sum_{i = 1}^n\delta_i \cdot \log{\lambda} +
+              \displaystyle \sum_{i = 1}^n\log{e^{-\lambda t_i}} \\
+           &= \displaystyle \sum_{i = 1}^n\delta_i \cdot \log{\lambda} -
+              \lambda \cdot \displaystyle \sum_{i = 1}^nt_i \\
+           &= d \cdot \log{\lambda} - \lambda \cdot V
+\end{align}
+$$
+
+Since the log transformation is monotonic, the value of $\lambda$ that maximizes the log- likelihood also maximizes the original likelihood function.  
+We use standard calculus to find the first derivative, also called the **score function**,  
+
+$$
+l'(\lambda) = \frac{d}{\lambda} - V
+$$
+which we set equal to zero to obtain the maximum likelihood estimate, $\hat{\lambda} = d / V$.  
+That is, our estimate is the number of deaths divided by the number of person-years.  
+<br />
+Next, we compute the second derivative of the log-likelihood,  
+$$
+l''(\lambda) = -\frac{d}{\lambda^{2}} = -I(\lambda)
+$$
+which, when we switch the sign, is known as the **information**.  
+This is important for two reasons.  
++ First, since the information is positive (the second derivative is negative), the likelihood function is concave down, which shows that we have indeed found a maximum.  
++ Second, using standard mathematical statistics theory, the inverse of the information is approximately the variance of the m.l.e.,  
+
+$$
+var(\hat{\lambda})\approx I^{-1}(\lambda) = \lambda^2 / d
+$$
+
+<br />
+Now we substitute $\lambda$ for $\hat{\lambda}$ to obtain the observed information $I(\hat{\lambda})$, and from there we get an estimate of the variance of the parameter:
+
+$$
+\hat{var}(\hat{\lambda})\approx I^{-1}(\hat{\lambda}) = \hat{\lambda}^2 / d = d/V^2 
+\;\;\; (\hat{\lambda} = d/V)
+$$
+We may use this formula to carry out hypothesis tests or find a confidence interval for $\lambda$.  
+<br />
+Consider for example the six observations in Table 1, and suppose that they are derived from an exponential distribution with unknown parameter $\lambda$.  
+
+Table 1.
+
+|Patient|Survival|Status|
+|:--|:--|:--|
+|1|7|0|
+|2|6|1|
+|3|6|0|
+|4|5|0|
+|5|2|1|
+|6|4|1|
+
+There are three deaths, which gives us $d = 3$.  
+Also, the total patient time on study is $V = 7+6+6+5+2+4 = 30$.  
+
+The log-likelihood function is $l(\lambda) = 3\log{\lambda} - 30\lambda$, and the maximum likelihood estimate is given by $\hat{\lambda} = 3/30 = 1$.  
+```{r}
+likelyhood <- function(lambda, d, V) {
+    d * log(lambda) - V * lambda
+}
+
+ggplot(tibble(x = seq(0, 0.3, by = 0.01)), aes(x = x)) + 
+  stat_function(fun = likelyhood, args = list(d = 3, V = 30)) + 
+  geom_vline(xintercept = 0.10, linetype = "dashed") + 
+  geom_hline(yintercept = likelyhood(0.1, 3, 30), linetype = "dashed")
+
+```
+Maximum likelihood methods may be applied to a wide range of statistical problems, using other distributions and more than one parameter, and (under technical conditions that are often satisfied), the m.l.e. is asymptotically normal with a mean that approaches the true mean of the parameter and a variance (or, when there are multiple parameters, a covariance matrix) that is the inverse of the information, or minus the second derivative of the log-likelihood theory.  
+The generality of the method makes it a central part of statistical theory and practice.  
+<br />
+<br />
+
+### Exercise
+
+2.1. Using the `survexp.us` data described in Example 1, plot the hazard functions for men and women in 1940 and 2000. Comment on the change in mortality rates in children.  
+<br />
+2.2. Find the meanage of death separately for men and women for 1940 and 2000.  
+```{r}
+# time
+age <- c(0:109)
+
+# extract hazard data
+hazard_list_1994 <- map2(c("male", "female"), "1994", ~ survexp.us[, .x, .y])
+hazard_list_2004 <- map2(c("male", "female"), "2004", ~ survexp.us[, .x, .y])
+
+# make tidy data frame
+df_1994 <- map2(hazard_list_1994, c("male", "female"), 
+                ~ tibble(year = 1994, 
+                         age = age, 
+                         hazard = as.numeric(.x), 
+                         sex = .y, 
+                         cum_hazard = cumsum(hazard), 
+                         surv_prop = exp(-cum_hazard * 365.24)))
+
+df_2004 <- map2(hazard_list_2004, c("male", "female"), 
+                ~ tibble(year = 2004, age = age, 
+                         hazard = as.numeric(.x), 
+                         sex = .y, 
+                         cum_hazard = cumsum(hazard), 
+                         surv_prop = exp(-cum_hazard * 365.24)))
+
+df_hazard <- bind_rows(df_1994, df_2004)
+
+head(df_hazard)
+
+df_hazard %>% 
+  ggplot(aes(age, surv_prop, color = factor(year))) + 
+  geom_line() + 
+  facet_wrap(~ sex, nrow = 2)
+
+df_hazard %>% 
+  ggplot(aes(age, log(hazard), color = factor(year))) + 
+  geom_line() + 
+  facet_wrap(~ sex, ncol = 2)
+
+# detect mean age
+df_hazard %>% 
+  group_by(year, sex) %>% 
+  summarize(mean_age = sum(surv_prop))
+
+```
+
+2.3. The dataset `survexp.usr` in the `survival` package is a four dimensional array of hazards in format similar to the `survexp.us` data set, with race (black or white) in the added dimension.  
+Plot the hazard functions for black males and white males for 1940 and 2000.  
+```{r}
+# extract data from survexp.urs
+var_list <- list(sex  = rep(c("male", "female"), each = 2, 2), 
+                 race = rep(c("white", "black"), 4), 
+                 year = rep(c("1994", "2004"), each = 4, 1))
+
+hazard_list <- pmap(var_list, function(sex, race, year) as.numeric(survexp.usr[, sex, race, year]))
+
+df_list <- pmap(var_list, function(sex, race, year) tibble(year = year, age = 0:109, sex = sex, race = race)) %>% 
+  map2(., hazard_list, ~ mutate(.x, hazard = .y, cum_hazard = cumsum(hazard), surv_prop = exp(-cum_hazard * 365.24)))  
+
+df_hazard <- bind_rows(df_list)  
+
+# plot hazard 
+ggplot(df_hazard, aes(age, log(hazard), color = race)) + 
+  geom_line() + 
+  facet_grid(sex ~ year)
+
+# detect mean age
+df_hazard %>% 
+  group_by(year, sex, race) %>% 
+  summarise(mean_age = sum(surv_prop))
+
+```
+
+2.4. Consider the survival data in Exercise 1.1. Assuming that these observations are from an exponential distribution, find $\hat{\lambda}$ and an estimate of $var(\hat{\lambda})$.  
+```{r}
+# create simple data frame of patients
+df <- data_frame(
+  patient = 1:5, 
+  start = c(1990, 1990, 1991, 1991, 1992), 
+  end   = c(1995, 1995, 1995, 1994, 1993), 
+  event = c(0, 0, 1, 1, 1), 
+  duration = end - start
+)
+
+df
+
+# calculate parameta
+(estimate <- df %>% 
+  summarise(d = sum(event), V = sum(duration), lambda = d / V, var_lambda = d / V ^ 2))
+
+ggplot(tibble(x = 0:7), aes(x)) + 
+  stat_function(fun = pexp, args = list(rate = estimate$lambda, lower.tail = FALSE))
+
+# create K-M plot and estimated line
+fit <- survfit(Surv(duration, event == 1) ~ 1, data = df)
+
+func <- function(x) {
+  pexp(x, rate = estimate$lambda, lower.tail = FALSE)
+}
+
+plot(fit)
+curve(func, from = 0, to = 5, add = TRUE)
+```
+
+
+2.5. Consider a survival distribution with constant hazard $\lambda = 0.07$ from $t = 0$ until $t = 5$ and then hazard $\lambda = 0.14$ for $t > 5$. (This is known as a piecewise constant hazard.)   
+Plot this hazard function and the corresponding survival function for $0<t<10$.  
+What is the median survival time?  
+```{r}
+# create piecewise constant hazard function 
+hazard_piecewise <- function(x) {
+  if (x < 0) {
+    stop("x must be >= 0")
+  } else if (x > 5) {
+    0.14
+  } else {
+    0.07
+  }
+}
+
+hazard_piecewise_vec <- function(x) {
+  map_dbl(x, hazard_piecewise)
+}
+
+survival_piecewise <- function(x) {
+  if (x < 0) {
+    stop("x must be >= 0")
+  } else if (x > 5) {
+    exp(-0.14 * x)
+  } else {
+    exp(-0.07 * x)
+  }
+}
+
+survival_piecewise_vec <- function(x) {
+  map_dbl(x, survival_piecewise)
+}
+
+ggplot(tibble(x = seq(0, 10, by = 0.1)), aes(x = x)) + 
+  stat_function(fun = hazard_piecewise_vec)
+
+ggplot(tibble(x = seq(0, 10, by = 0.1)), aes(x = x)) + 
+  stat_function(fun = survival_piecewise_vec)
+
+```
+
+2.6. Another parametric survival distribution is the **log-normal distribution**.  
+Use the density and cumulative distribution R functions `dlnorm` and `plnorm` to compute and plot the lognormal hazard functions with the parameter *meanlog* taking the values 0, 1, and 2, and with *sdlog* fixed at 0.25.  
+Describe the risk profile a disease would have if it followed one of these hazard functions.
+```{r}
+# func list of log-normal hazard
+log_normal_func <- function(meanlog, sdlog) {
+  function(x) {
+    dlnorm(x, meanlog = meanlog, sdlog = sdlog) / plnorm(x, meanlog = meanlog, sdlog = sdlog, lower.tail = FALSE)
+  }
+}
+
+func_list <- map2(c(0, 1, 2), 0.25, ~ log_normal_func(meanlog = .x, sdlog = .y))
+
+# plot log-normal distribution hazard function
+ggplot(tibble(x = 0:100), aes(x = x)) + 
+  stat_function(fun = func_list[[1]], color = "red") + 
+  stat_function(fun = func_list[[2]], color = "black") + 
+  stat_function(fun = func_list[[3]], color = "blue")  + 
+  geom_text(aes(x = 70, y = 5.8), label = "meanlog = 0, sdlog = 0.25", color = "red") + 
+  geom_text(aes(x = 70, y = 5.3), label = "meanlog = 1, sdlog = 0.25", color = "black") + 
+  geom_text(aes(x = 70, y = 4.8), label = "meanlog = 2, sdlog = 0.25", color = "blue") + 
+  labs(y = "Hazard", x = "Time", title = "Log-normal hazard")
+ 
+# plot log-normal distribution survival function
+ggplot(tibble(x = 0:100), aes(x = x)) + 
+  stat_function(fun = plnorm, args = list(meanlog = 0, sdlog = 0.25, lower.tail = FALSE), color = "red") + 
+  stat_function(fun = plnorm, args = list(meanlog = 1, sdlog = 0.25, lower.tail = FALSE), color = "black") + 
+  stat_function(fun = plnorm, args = list(meanlog = 2, sdlog = 0.25, lower.tail = FALSE), color = "blue")  + 
+  geom_text(aes(x = 70, y = 0.98), label = "meanlog = 0, sdlog = 0.25", color = "red") + 
+  geom_text(aes(x = 70, y = 0.93), label = "meanlog = 1, sdlog = 0.25", color = "black") + 
+  geom_text(aes(x = 70, y = 0.88), label = "meanlog = 2, sdlog = 0.25", color = "blue") + 
+  labs(y = "Survival probability", x = "Time", title = "Log-normal hazard")
+
+```
+

@@ -1,0 +1,719 @@
+---
+title: "Chapter5: Regression Analysis Using the Proportional Hazards Model"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(survival)
+library(survminer)
+library(broom)
+library(asaur)
+```
+
+### Covariates and nonparametric survival models  
+In the previous chapter we saw how to compare two survival distributions without assuming a particular parametric form for the survival distributions, and we also introduced a parameter $\psi$ that indexes the difference between the two survival distributions via the Lehmann alternative, $S_1(t) = [S_0(t)]^{\psi}$.  
+We can see that we can re-express this relationship in terms of the hazard functions, yielding the **proportional hazards assumption**,  
+
+$$
+h_1(t) = \psi h_0(t)
+$$
+
+This equation is the key to quantifying the difference between two hazard functions, and the proportional hazards model is widely used.   
+Furthermore, we can extend the model to include covariate information in a vector z as follows:    
+
+$$
+\psi = e^{z \beta}
+$$
+
+While other functional relationships between the proportional hazards constant $\psi$ and covariates $z$ are possible, this is by far the most common in practice.  
+<br />
+
+This proportional hazards model will allow us to fit regression models to censored survival data, much as one can do in linear and logistic regression.    
+However, not assuming a particular parametric form for $h_0(t)$, along with the presence of censoring, makes survival modeling particularly complicated.    
+In this chapter we shall see how to do this using what we shall call a **partial likelihood**.    
+This modification of the standard likelihood was developed initially by D.R. Cox, and hence is often referred to as the **Cox proportional hazards model**.    
+
+<br />
+
+### Comparing two survival distributions using a partial likelihood function   
+We begin our discussion of the partial likelihood by considering the simple case of comparing two groups of survival data.  
+Parametric distributions require strong assumptions about the form of the underlying survival distribution.    
+However, the partial likelihood will allow us to use an unspecified baseline survival distribution to define the survival distributions of subjects based on their covariates.  
+<br />  
+
+The partial likelihood differs from a likelihood in two ways.  
+First, it is a product of expressions, one for each failure time, while censoring times do not contribute any factors.  
+Second, the factors of a partial likelihood are conditional probabilities.  
+
+<br /> 
+
+Let’s fix some notation.   
+We will use $j$ to denote the $j$’th failure time (where the failure times are sorted from lowest to highest).   
+The hazard function for Subject $i$ at failure time $t_j$ is $h_i(t_j)$.   
+Under the proportional hazards model, we may write this hazard function as $h_1(t_j) = \psi_i h_0(t_j)$, and $\psi_i = e^{z_i \beta}$.    
+Since we are now considering the very simple case of comparing a control and experimental group, the covariate $z_i$ is either 1 (if the patient is in the experimental group) or 0 (of the patient is in the control group).  
+Since patients in the experimental group are, we hope, less likely than control patients to experience the event, we expect that $\beta < 0$, and hence $\psi < 1$.  
+In other words, $\psi = 1$ if a patient is in the control group or $\psi_i = \psi$ if that patient is in the experimental group.   
+Consider now the first failure time $t_1$. The set of all subjects in the trial “at risk” for failure at this time is denoted by $R_1$.  
+Among the patients in the risk set $R1$, all are at risk of failure (i.e. of experiencing the event), and one of them, say Patient $i$, does fail. (We assume for now that there are no ties.) The probability that Patient $i$ is the one who fails is the hazard,  
+$h_i(t_1) = h_0(t_1)\psi$, for that patient divided by the sum of the hazards of all of the patients:  
+
+$$
+p_1 = \frac{h_i(t_1)}{\displaystyle \sum_{k \in R_1} h_k(t_1)} 
+    = \frac{h_0(t_1)\psi_i}{\displaystyle \sum_{k \in R_1} h_0(t_1)\psi_k}
+$$
+where h0.t1/ is the hazard for a subject from the control group. The expression "$k\in R_1$" under the summation sign indicates that the sum is taken over all patients in the risk set $R_1$.  
+A key fact here is that the baseline hazard $h_0(t_1)$ cancels out of the numerator and denominator, so that we have  
+
+$$
+p_1 = \frac{\psi_i}{\displaystyle \sum_{k \in R_1} \psi_k}
+$$
+After the event at $t_1$, that patient drops out of the risk set $R1$, as do any censored observations that occur after $t1$ up to and including the second failure time $t2$, resulting in a new (and smaller) risk set $R2$.   
+We then repeat this calculation to obtain $p2$, and so on up to the last failure time.   
+The partial likelihood is the product $L(\psi) = p_1 \cdot p_2 \cdot p_3 \cdots p_D$, assuming that there are $D$ failure times.    
+In each factor the baseline hazard cancels out of the numerator and denominator, so that it plays no role in the final partial likelihood.   
+<br />  
+
+*Example:*    
+Let us consider again the synthetic data in below  
+```{r}
+(df <- tibble(patient = 1:6, 
+             survtime = c(6, 7, 10, 15, 19, 25), 
+             censor = c(1, 0, 1, 1, 0, 1), 
+             group = c("C", "C", "T", "C", "T", "T")))
+
+ggplot(df) + 
+  geom_segment(aes(x = 0, xend = survtime, y = patient, yend = patient, color = group)) + 
+  geom_point(aes(x = survtime, y = patient, shape = factor(censor))) + 
+  scale_shape_manual(values = c(1, 4)) + 
+  scale_y_continuous(breaks = seq(1, 6, by = 1))
+```
+At time0, there are six patients in the data set, all of which are at risk of experiencing an event.  
+We call this group of patients the initial risk set $R1$.   
+Just before the first failure time, $t = 6$, there are still six patients at risk, any one of which could experience the event. For our simple example, we have $\psi_1 = \psi_2 = \psi_4 = 1$ (control) and $\psi_3 = \psi_5 = \psi_6 = \psi$ (treatment).  
+Substituting into above Eq we have, for the event at time 6.  
+
+$$
+p_1 = \frac{1 \cdot h_0(t_1)}{3 \cdot h_0(t) \cdot \psi + 3 \cdot h_0(t)} = \frac{1}{3\psi + 3}
+$$
+
+That is, there are six patients at risk, with six corresponding terms in the denominator.   
+One of them fails, a control patients, so a “1” appears (control) in the numerator.  
+The factor for the second failure time may be found in the same way.   
+Of the six patients at risk at the first time, one dropped out because of a failure, and also a control patient dropped out at time 7 due to censoring. The factor for the second failure time, $t = 10$, is thus  
+
+$$
+p_2 = \frac{\psi}{3\psi + 1}
+$$
+
+For the third failure time, $t = 15$, there are three patients at risk, one control and two treated. A control patient fails, so we have
+
+$$
+p_3 = \frac{1}{2\psi + 1}
+$$
+Finally, at the last event $time = 25$, there is only one subject at risk, who has the event, so the last factor is just 1.   
+The partial likelihood is the product of these expressions,   
+
+$$
+\begin{align}
+L(\psi) &= p_1 \cdot p_2 \cdot p_3 \cdot p_4 \\
+        &= \frac{1}{3\psi + 3} \cdot \frac{\psi}{3\psi + 1} \cdot \frac{1}{2\psi + 1} \cdot 1 \\
+        &= \frac{\psi}{(3\psi + 3)(3\psi + 1)(2\psi + 1)}
+\end{align}
+$$
+Working with this function will be easier if we make the variable transformation $\psi = e^{\beta}$.    
+Then we have   
+
+$$
+\begin{align}
+l(\beta) &= \log(\psi) - \log(3\psi + 3) - \log(3\psi + 1) - \log(2\psi + 1) \\
+         &= \beta - \log(3e^{\beta} + 3) - \log(3e^{\beta} + 1) - \log(2e^{\beta} + 1)
+\end{align} 
+$$
+The maximum partial likelihood estimate is the value of $\psi$ that maximizes this function which, as we have said, is independent of the baseline hazard function $h_0(t)$.   
+Notice that the particular values of the failure times do not contribute to this function; only the order matters.   
+<br />
+
+Also notice that, unlike a likelihood function, this partial likelihood is not a probability, since factors for censored times are not included.    
+Still, one can treat this as if it were a likelihood, and find the maximum partial likelihood estimate of $\beta$ 
+In R, we may do this by first defining the function $l(\beta)$:  
+
+```{r}
+# define l(beta)
+likely_beta <- function(beta) {
+  beta - log(3 * exp(beta) + 3) - log(3 * exp(beta) + 1) - log(2 * exp(beta) + 1)
+}
+
+# detect m.p.l.e. (maximum partial likelihood estimate) using the “optim” function.
+(m_p_l_e = optim(par = 0, fn = likely_beta, method = "L-BFGS-B", 
+                control=list(fnscale = -1),
+                lower = -3, upper = 1))
+
+# plot l(beta)
+ggplot(data = tibble(x = seq(-3, 1, by = 0.1)), aes(x = x)) + 
+  stat_function(fun = likely_beta) + 
+  geom_segment(x = m_p_l_e$par, xend = m_p_l_e$par, y = -Inf, yend = likely_beta(m_p_l_e$par), 
+               linetype = "dashed", color = "blue") + 
+  geom_segment(x = 0, xend = 0, y = -Inf, yend = likely_beta(0), linetype = "dashed", color = "red") + 
+  geom_abline(slope = -0.917, intercept = likely_beta(0), color = "red")
+
+```
+
+The solid curved black line is a plot of the log partial likelihood over a range of values of $\beta$.   
+The maximum is indicated by the vertical dashed blue line, and the value of the *l.p.l.* at that point is -3.672.   
+Also shown is the value `r likely_beta(0)` of the *l.p.l.* at the null hypothesis value, $\beta = 0$.  
+The tangent to the $l(\beta)$ curve at $\beta = 0$ is shown by the straight red line.       
+Its slope is the derivative of the log-likelihood (i.e. the score function) evaluated at $\beta = 0$.  
+<br />
+
+Interestingly, this is exactly the (absolute value of) the log-rank statistic $U_0$ which we obtained in the previous chapter.    
+This simple example illustrates a general principle: *The score function, obtained by taking the derivative of the log partial likelihood, evaluated at* $\beta = 0$*, is equivalent to the log-rank statistic*.   
+
+### Partial likelihood hypothesis tests   
+In standard likelihood theory, one can derive three forms of the test of $H_0:\beta = 0$: **the Wald test**, **the score test**, and **the likelihood ratio test**.    
+In survival analysis, we may use the partial likelihood to derive these three tests, although the underlying statistical theory for the partial likelihood is far more complex than that for standard likelihood theory.    
+Often - but not always - the three tests yield similar results.   
+<br />  
+
+To develop the tests, we need two functions derived from the partial log likelihood.    
+The first, **the score function**, is the first derivative of the log likelihood, $S(\beta) = l'(\beta)$.    
+The second function, **the information**, is minus the derivative of the score function, or equivalently minus the second derivative of the log-likelihood, $I(\beta) = -S'(\beta) = -l''(\beta)$.   
+The second derivative $l''(\beta)$ is also known as the **Hessian**.   
+With the substitution of the parameter estimate $\hat{\beta}$ into the information, we obtain the **observed information**.    
+
+### The Wald test   
+The Wald test is perhaps the most commonly used test, and carrying it out is straightforward from computer output.  
+The test statistic is of the form $Z = \hat{\beta}/s.e.(\hat{\beta})$, where “s.e.” stands for “standard error.”  
+In the previous section, we saw that $\hat{\beta}$ was the value of $\beta$ hat maximizes $l(\beta)$.     
+We know from basic differential calculus that we may find the maximum by solving $S(\beta) = l'(\beta) = 0$ for $\beta$.    
+Ordinarily this is a non-linear function that must be solved numerically using an iterative procedure.    
+To find the variance of $\hat{\beta}$, we evaluate the information, $I(\beta) = -l''(\beta)$.  
+That is, the information (technically, the “observed information”) is minus the second derivative of the partial likelihood, evaluated at $\hat{\beta}$.   
+$I(\hat{\beta})$ is a measure of the curvature of the likelihood at $\hat{\beta}$.   
+Intuitively, higher values of the curvature reflect a sharper curve, more **information**, and lower variance.  
+Lower curvatures, by contrast, corresponds to flatter curves and **higher variance**.  
+The variance of $\hat{\beta}$ is approximately $1/I(\hat{\beta})$, and the standard error is $s.e.(\hat{\beta}) = 1 / \sqrt{I(\hat{\beta})}$.    
+We may use this to construct a normalized test statistic $Z_w = \hat{\beta} / s.e.(\hat{\beta})$, and reject $H_0:\beta = 0$ if $|Z_w| > Z_{\alpha / 2}$.    
+We can also construct a $1-\alpha$ confidence interval, $\hat{\beta} \pm z_{\alpha / 2} \cdot s.e.(\hat{\beta})$.    
+Equivalently, we can use the fact that the square of a standard normal random variable has a chi-square distribution with one degree of freedom, and reject the null hypothesis if $Z_w^2 > \chi^2_{\alpha, 1}$.    
+
+<br />
+
+### The score test   
+The score function is the first derivative of the partial log-likelihood, $S(\beta) = l'(\beta)$.   
+The variance of the score statistic is $I(\beta)$.   
+We evaluate the score and information at the null hypothesis value of $\beta$, normally $\beta = 0$.   
+The test statistic is $Z_s = S(\beta = 0)/ \sqrt{I(\beta = 0)}$, and we reject $H_0: \beta = 0$ if $|Z_s| > z_{\alpha / 2}$, or equivalently if $Z_s^2 > \chi^2_{\alpha, 1}$.   
+The score test is equivalent to the log-rank test, as we saw in the previous section.    
+This test can be carried out without finding the maximum likelihood estimate $\hat{\beta}$.    
+
+<br />
+
+### The likelihood ratio test   
+The likelihood ratio test uses the result from statistical theory that $2[l(\beta = \hat{\beta}) - l(\beta = 0)]$ follows approximately a chi-square distribution with one degree of freedom.    
+The key advantage of this test over the other two is that it is invariant to monotonic transformations of $\beta$.   
+For example, whether the test is computed in terms of $\beta$ or in terms of $\psi = e^{\beta}$ has no effect at all on the p-value for testing $H_0:\beta = 0$.  
+
+<br />
+
+*Example:*
+We begin by presenting the output from the `coxph` function.    
+The result is put into a data structure called “result_cox”, and a complete summary of the results we obtain using the `summary` function,  
+
+```{r}
+# Using propotional hazard function
+result_cox <- coxph(Surv(survtime, censor) ~ group, data = df)
+
+# Show summary of result_cox
+summary(result_cox)
+
+```
+
+We will explain the computations of the estimates and test statistics as follows. We use the associated log partial likelihood function 'likely_beta'.     
+We may compute the derivative of the log-likelihood (i.e. the score) evaluated at $\beta = 0$ numerically using the `gradient` function in the package `numDeriv` (which must be separately downloaded and installed),   
+
+```{r}
+library(numDeriv)
+
+# Caluculate l'(beta = 0) = S(beta = 0)
+grad(likely_beta, x = 0)
+
+```
+
+The result -0.917 is thus the score evaluated at the null hypothesis, and is the slope of the red tangent line in above Fig.   
+To carry out the score test, we also need the information, which we obtain using the `hessian` function as follows:    
+
+```{r}
+# Caluculate -l''(beta = 0) = I(beta = 0)
+hessian(likely_beta, x = 0)
+```
+
+This is the curvature of the log-likelihood at the point where the tangent touches the log-likelihood in Fig.  
+The score test statistic, expressed as $Z_s^2$, is the square of the score at $\beta = 0$ divided by minus the hessian (information), also at $\beta = 0$, as follows:    
+
+```{r}
+(score_log_rank <- grad(likely_beta, x = 0) ^ 2 / abs(hessian(likely_beta, 0)))
+```
+This is the result given on **"Score (logrank) test"** of the summary output.    
+The score test p-value is given by the upper tail,  
+
+```{r}
+pchisq(score_log_rank, df = 1, lower.tail = FALSE)
+```
+
+This score test p-value is also given on **"Score (logrank) test"**.     
+
+We compute the **Wald test**.  
+The parameter estimate and standard error are given on "groupT coef". Finally, the Wald test statistic $Z_w$ and two-sided p-value for the test are given by   
+
+```{r}
+# calculate Z_w = beta-hat / s.e(beta_hat)
+(wald_log_rank <- m_p_l_e$par / sqrt(1 / -hessian(likely_beta, x = m_p_l_e$par)))
+
+# p.value of 2-sided
+pnorm(abs(wald_log_rank), lower.tail = F) * 2
+
+```
+
+These results may also be found on line 8. The square of the test statistic is 1.124, and this result may be found on line 16, along with the same Wald p-value of 0.289.    
+
+The likelihood ratio statistic is twice the difference in the log partial likelihoods
+evaluated at $\hat{\beta}$ and at 0;    
+
+```{r}
+# calculate likelihood estimation
+(likelihood_log_rank <- 2 * (likely_beta(m_p_l_e$par) - likely_beta(0)))
+
+# p.value
+pchisq(likelihood_log_rank, df = 1, lower.tail = FALSE)
+```
+
+This result may be found on line 15, along with the p-value derived from the chi-square distribution,  
+
+Two additional portions of the output are often useful. The statistic “r-squared” is an adaptation to survival analysis of the $R^2$ statistic from linear regression. Here it is defined as follows:   
+
+$$
+R^2 = 1 - \left(\frac{l(0)}{l(\beta)}\right)^{2/n}
+$$
+
+and reflects the improvement in the fit of the model with the covariate compared to the null model.  
+The “Concordance” is the C-statistic, a measure of the predictive discrimination of a covariate.   
+See Harrell for more details.   
+<br />
+
+### The Partial Likelihood with Multiple Covariates   
+We now develop in greater generality the partial likelihood.  
+We define the hazard ratio (relative to the baseline hazard) for subject $i$ by $\psi_i = e^{z'_i\beta}$.   
+As in the previous section, $z_i$ is a vector of covariate values for subject $i$, and $\beta$ is a vector of coefficients, with one coefficient for each covariate.  
+The hazard ratio parameter could be written more completely as $\psi(z_i, \beta)$, but for we will generally use $\psi_i$ for brevity.   
+Just before the first failure time, all of the subjects are said to be “at risk” for failure, and among these, one will fail.    
+The “risk set” is the set of all individuals at risk for failure, and is denoted by $R_j$.   
+The partial likelihood is a product of terms, one for each failure time.    
+For each factor, (i.e., for each $j$), the denominator is the sum of all risks in the risk set $R_i$ (denoted by "$k \in R_j$") of $h_k = h_o\psi_k$ and the numerator is the hazard $h_j = h_0 \psi_j$ for the individual in the risk set $R_j$ who experienced the failure.   
+As we saw previously, the baseline hazards $h_0(t_j)$ cancel out of all of the terms, as follows:    
+
+$$
+L(\beta) = \prod_{j = 1}^{D}\frac{h_0(t_j)\psi_j}{\displaystyle \sum_{k \in R_j}h_0(t_j)\psi_k} = \prod_{j = 1}^{D} \frac{\psi_j}{\displaystyle \sum_{k \in R_j}\psi_k}
+$$
+where the product is taken over all of the deaths.   
+This function is called a partial likelihood because it lacks factors for the censored observations.    
+Nevertheless, it may be used as if it were a likelihood, an idea first proposed by Cox.   
+
+The log partial likelihood is as follows, using D to represent the number of deaths in the set $D$:   
+
+$$
+l(\beta) = \displaystyle \sum_{j = 1}^{D}\left[\log{\psi_j} - \log{(\displaystyle \sum_{k \in R_j}\psi_k)}\right] 
+= \displaystyle \sum_{j = 1}^{D}z'_j \beta - \displaystyle \sum_{i = 1}^{D} \log{(\displaystyle 
+\sum_{k \in R_j} e^{z'k \beta}})
+$$
+
+The score function, which is the first derivative of $l(\beta)$, has $p$ components, one for each of the $p$ covariates.   
+The $l$'th component is given by (recalling that $\log{(\psi_j)} = z'_j\beta$, and using the fact that $z_{jl} = \partial \log{\psi_j}/ \partial \beta_l$)   
+
+$$
+S_l(\beta) = \frac{\partial l \beta}{\partial \beta_l} = 
+\displaystyle \sum_{j = 1}^{D} \left(z_{jl} - \frac{\displaystyle \sum_{k \in R_j} z_{jk} e^{z'_j\beta}}
+{\displaystyle \sum_{k \in R_j} e^{z'_j\beta}}\right)
+$$
+
+As we will see in Chap. 7, we may view the score function as the sum of **residuals**, each of which consists of the observed value $z_{ij}$ of the covariate minus an **expected** value.   
+In the special case where $z_i$ is a single binary covariate, $S(\beta = 0)$ is the log-rank statistic.  
+To construct test statistics as we did, we will need the second derivative of the log-likelihood with respect to all pairwise combinations of the $k$ covariates.  
+Writing the score function as a vector with $k$ components, we may define the *observed information* matrix as follows:    
+
+$$
+I(\beta ; z) = -\frac{\partial^2 l(\beta)}{\partial\beta\partial\beta'} 
+= - \frac{\partial S(\beta)}{\partial \beta}
+$$
+
+Also known as the *Hessian* matrix, this may be derived using standard differential calculus.   
+The Wald, score, and likelihood ratio test statistics of $H_0: \beta = 0$ are, respectively,      
+
+$$
+X_w^2 = \hat{\beta}' I(\hat{\beta};z)\hat{\beta} \\
+X_s^2 = S'(\beta = 0;z)\cdot I^{-1}(\beta = 0;z)\cdot S(\beta = 0;z) \\
+X_l^2 = 2 \{l(\beta = \hat{\beta}) - l(\beta = 0)\}
+$$
+
+All three are, under the null hypothesis, asymptotically chi-square random variables with $k - 1$ degrees of freedom.   
+We shall see specific examples of these tests in the next chapter.    
+<br />
+
+### Estimating the Baseline Survival Function  
+An estimate of the baseline hazard function is given by   
+
+$$
+h_0(t_i) = \frac{d_i}{\displaystyle \sum_{j \in R_i}\exp{(z_j\hat{\beta})}}
+$$
+
+In the case of a single sample, with $\beta = 0$, this reduces to the Nelson-Altschuler-Aalen estimator.  
+The baseline survival function is  
+
+$$
+S_0(t) = \exp{[-H_0(t)]}
+$$
+
+and an estimate may be obtained by estimating $H_0(t)$ as a cumulative sum of the estimated hazards $h_0(t_j)$ for $t_j \le t$.   
+This is the estimator of the survival function of an individual with all covariate values set to zero.   
+For many cases this is not a desirable or even sensible estimate. For example, if one of the covariates is “age of onset”, setting that to zero will not result in a baseline survival curve with any practical meaning.    
+
+To find a survival curve for a particular covariate value $z$ use  
+
+$$
+S(t|z) = [S_0(t)]^{\exp(z\hat{\beta})}
+$$
+
+In R the `basehaz` function will compute a cumulative baseline hazard function.   
+Be sure to use the option “centered = F” to cause it to estimate the cumulative hazard at $\beta = 0$.  
+The default is to estimate it at the mean of the covariates. This will often not make sense, particularly for categorical covariates such as treatment indicator, sex, or race.    
+<br />
+
+### Handling of Tied Survival Times  
+Tied survival time can arise in two ways.   
+If the underlying data are continuous, ties may arise due to rounding. For example, survival data may be recorded in terms of whole days, weeks, or months. In this case, the ties are a form of incomplete data, in that the true times are not tied.  
+The other way tied survival data may arise is when the survival times are genuinely discrete. For example, in an industrial setting, the survival time may represent the number of compressions of a device until it fails. Or, in a study of effectiveness of birth control methods, survival time may be represented by the number of menstrual cycles until pregnancy.    
+We will consider these two cases separately. (If censoring times are tied with failure times, the general convention is to consider the failures to precede the censoring times, so that the censored individuals are still in the risk set at the time of failure.)   
+We shall illustrate these two cases using a simple data set.   
+<br />
+
+*Example:* Suppose that we are comparing a control to a treatment group, with control survival times 7+, 6, 6+, 5+, 2, and 4, and treated times 4, 1, 3+ and 1.  
+In this data set there are four distinct failure times, with ties at the first failure time $t = 1$ and at the third failure time $t = 4$.    
+If the underlying times are actually continuous, we use the proportional hazards model    
+
+$$
+h(t;z) = e^{z\beta} h_0(t)
+$$
+
+where $z = 1$ or $0$ for a treated or control patient, respectively.   
+The partial likelihood is then the product of four factors, one for each distinct failure time.    
+At the first time, $t = 1$, all 10 patients are at risk, and two of them, both from the treatment group, and either of those two patients may have failed first. The first factor of the partial likelihood may be represented as the sum of these two possibilities:   
+
+$$
+L_1(\beta) = \frac{e^{\beta}}{4e^{\beta}+6} \cdot \frac{e^{\beta}}{3e^{\beta}+6}+
+\frac{e^{\beta}}{4e^{\beta}+6}\cdot\frac{e^{\beta}}{3e^{\beta}+6}
+$$
+Since both events are in the treatment group, the form of the two terms is the same.   
+At the second failure time, $t = 2$, there are eight subjects at risk, two in the treatment group and six in the control group, and only one failure, a subject in the control group.     
+The second factor is thus   
+
+$$
+L_2(\beta) = \frac{1}{2e^{\beta} + 6}
+$$
+
+At the third failure time, $t = 4$, there are six subjects at risk, and two failures, one in the treatment and one in the control group.    
+The third factor is thus a sum of the two possible orderings of these two failures,   
+
+$$
+L_3(\beta) = \frac{1}{e^{\beta} + 5} \cdot \frac{e^{\beta}}{e^{\beta} + 4} + 
+\frac{e^{\beta}}{e^{\beta} + 5}\cdot \frac{1}{5}
+$$
+
+The final factor is a constant.    
+Thus, we may write the full partial likelihood as the product of these three terms.    
+Since this method essentially averages over an enumeration all possible orderings of the tied failure times, we refer to this method as **the marginal method** for ties.    
+<br />
+
+If the times are in fact discrete, and the tied survival times are true ties, then we may model these using the discrete logistic model,    
+
+$$
+\frac{h(t;z)}{1 - h(t;z)} = e^{z \beta} \cdot \frac{h_0(t;z)}{1 - h_0(t;z)}
+$$
+
+At the first failure time, $t = 1$, there are $\binom{10}{2} = 45$ possible pairs that could represent the two failures.   
+We may enumerate these possibilities by listing the proportionality terms as rows and columns, and the products as the lower diagonal as in Fig.  
+
+![](Fig5.1.png)
+
+The numerator of the first partial likelihood factor is $e^{2\beta}$ since both of the subjects who failed at this time were in the treatment group.    
+The denominator is the sum over all possible pairs:    
+
+$$
+L_1(\beta) = \frac{e^{2\beta}}{6e^{2\beta} + 24e^{\beta} + 15}
+$$
+
+The second factor is the same as it was previously,   
+
+$$
+L_2(\beta) = \frac{1}{2e^{\beta} + 5}
+$$
+
+For the third failure time, there are $\binom{6}{2} = 15$ possible pairs, of which one is from the treatment group and one from the control group.   
+So the numerator is $e^{\beta} \cdot 1$ and he denominator has 15 terms,    
+
+$$
+L_3(\beta) = \frac{e^{\beta} \cdot 1}{5e^{\beta} + 10}
+$$
+
+and the partial likelihood using this method is, of course, the product of these three factors.   
+We shall call this method **the exact discrete method**.    
+<br />
+
+We may enter this data set into R as follows:   
+
+```{r}
+# make df which contains tie data
+df2 <- tibble(time   = c(7, 6, 6, 5, 2, 4, 4, 1, 3, 1), 
+              status = c(0, 1, 0, 0, 1, 1, 1, 1, 0, 1), 
+              group  = c(0, 0, 0, 0, 0, 0, 1, 1, 1, 1))
+```
+
+The partial log-likelihoods for the continuous exact and discrete exact may be defined as   
+
+```{r}
+# log_likely by the marginal method
+log_lik_continuous <- function(b) {
+  result <- 3 * b + log(exp(b) + 9) - log(4 * exp(b) + 6) -
+            log(3 * exp(b) + 6) - log(2 * exp(b) + 6) -
+            log(exp(b) + 5) - log(exp(b) + 4)
+  result
+}
+
+# log_likeky by the exact discrete method
+log_lik_discrete <- function(b) {
+  resultA <- exp(2 * b) / (6 * exp(2 * b) + 24 * exp(b) + 15) 
+  resultB <- 1 / (6 + 2 * exp(b))
+  resultC <- exp(b) / (10 + 5 * exp(b))
+  result <- log(resultA) + log(resultB) + log(resultC)
+  result
+}
+
+```
+
+We may find the maximum partial likelihood estimates using the `optim` function,    
+
+```{r}
+# caluculate beta by the margin method
+result_optim_continuous <- optim(par = 1.4, 
+                                 fn = log_lik_continuous, 
+                                 method = "BFGS", 
+                                 control = list(fnscale = -1))
+
+# caluculate beta by the exact discrete method
+result_optim_discrete <- optim(par = 1.4, 
+                               fn = log_lik_discrete, 
+                               method = "BFGS", 
+                               control = list(fnscale = -1))
+
+# beta of the margin method
+result_optim_continuous$par
+
+# beta of the exact discrete method
+result_optim_discrete$par
+```
+
+We may compare these results to those from `coxph` with the "exact" method,   
+
+```{r}
+# `coxph` by tie data.
+# `coxph` use "exact discrete method" in default
+result_cox_tie <- coxph(Surv(time, status) ~ group, data = df2, ties = "exact")
+result_cox_tie$coef
+```
+
+The “exact” method in `coxph` corresponds to the discrete exact method, which typically will be similar in value to the marginal method.    
+
+Both of these methods require exhaustive enumeration for tied survival times, and they become computationally burdensome for data sets with more than a small number of tied observations.    
+Fortunately, approximate methods are available.     
+<br />
+
+The first, and simplest, is **the Breslow approximation**, adjusts both terms of the marginal method so that they have the same denominator, corresponding to all subjects at risk. The first and third factors are just   
+
+$$
+\begin{align}
+L_1(\beta) &= \frac{2e^{\beta}}{(4e^{\beta} + 6)^2} \\
+L_3(\beta) &= \frac{2(1\cdot e^{\beta})}{(e^{\beta} + 5)^2}
+\end{align}
+$$
+
+A more refined method is **the Efron method**, in which the Breslow method denominator is replaced by a better approximation,   
+
+$$
+\begin{align}
+L_1(\beta) &= \frac{e^{\beta}}{(4e^{\beta} + 6)} \cdot 
+\frac{e^{\beta}}{(0.5e^{\beta}+0.5e^{\beta} + 2e^{\beta} + 6)} \\
+L_3(\beta) &= \frac{1}{(e^{\beta} + 5)^2} \cdot \frac{e^{\beta}}{0.5+0.5e^{\beta}+4}
+\end{align}
+$$
+At the first failure time, the denominator of the first factor contains terms for all 10 subjects at risk, while in the second factor it has the 8 subjects still at risk after the failures, plus one-half of each of the subjects that fail at that time.    
+Intuitively, each of these subjects has a chance of one-half of being in the second denominator, since one of them would have been the first failure.     
+Similarly, for the third failure time, the denominator of the second factor has the three subjects that do not fail, and one-half of each of the subjects that will fail; one of these is a control and one a treatment subject.    
+
+```{r}
+# breslow-method
+result_cox_breslow <- coxph(Surv(time, status) ~ group, data = df2, ties = "breslow")
+result_cox_breslow$coef
+
+# efron-method (default)
+result_cox_efron <- coxph(Surv(time, status) ~ group, data = df2, ties = "efron")
+result_cox_efron$coef
+```
+
+
+<br /> 
+
+### Left Truncation  
+In Chapter 3 we discussed how left-truncation can arise in a clinical trial setting when the question of interest is time from diagnosis (rather than time from enrollment) to death or censoring.    
+The same considerations arise in a comparative clinical trial.    
+<br />
+
+To illustrate this, consider data from a hypothetical trial of six patients, three receiving an experimental treatment and three receiving a standard therapy.   
+The time “time” represents the time from entry into the trial until death or censoring, “status” indicates whether or not a death was observed, and “group” indicates which group the patient is in.   
+The time “back_time” refers to the backwards recurrence time, that is, the time before entry when the patient was diagnosed.    
+We may enter the data into R as follows:   
+
+```{r}
+df_left <- tibble(time   = c(6, 7, 10, 15, 19, 25), 
+                  status = c(1, 0, 1, 1, 0, 1), 
+                  group  = c(0, 0, 1, 0, 1, 1), 
+                  back_time = c(-3, -11, -3, -7, -10, -5))
+```
+
+The data are plotted in Fig.     
+
+![](Fig5.2.png)
+
+The standard way to compare the two groups is to ignore the backwards recurrence times:     
+
+```{r}
+coxph(Surv(time, status) ~ group, data = df_left)
+```
+
+This result shows that the experimental group has a lower hazard than the control group, but this difference is not statistically significant (p-value = 0.271 based on the likelihood ratio test).     
+There is nothing wrong with this standard and widely-used method; since there is no reason to believe that the backwards recurrence times would differ between the two groups, there should be no concern about bias.    
+However, in some circumstances one may wish to compare survival times starting from time from diagnosis, and then it is essential to account for the left truncation.     
+The data can be re-configured so that the diagnosis occurs at time 0 as follows:   
+<br />
+
+These data are plotted in Fig.   
+
+![](Fig5.3.png)
+
+The left-truncated data may be compared as follows:   
+
+```{r}
+coxph(Surv(-back_time, time - back_time, status, type="counting") ~ group, data = df_left)
+```
+
+In this example, using the full survival times (from diagnosis) with left truncation leads to a similar non-significant treatment difference conclusion. (The option “type = ‘counting’ ” is not required, since the `Surv` function will use it by default in this case.)     
+<br />
+
+Another example is the **Channing House data**, which we discussed in Chapter 3.    
+We may compare the survival of men and women, accounting for the different ages of entry.    
+
+```{r}
+head(ChanningHouse)
+```
+
+
+As before, we condition on subjects reaching the age of 68.   
+We have to do this explicitly, since the “start.time” option we used previously is not available in the `coxph` function,    
+
+```{r}
+CH_68 <- ChanningHouse %>% 
+  tbl_df() %>% 
+  mutate(entry = entry / 12, exit = exit / 12, time = time / 12) %>%   # convert months to years
+  filter(exit >= 68)  # filter exit >= 68
+
+coxph(Surv(entry, exit, cens, type = "counting") ~ sex, data = CH_68)
+
+```
+
+Here are the results, which show that men have a higher hazard (and hence lower survival) than do women, but this difference is not statistically significant:   
+<br />
+
+### Exercise  
+1. Consider the data set `aml`, which is included in the `survival` package.   
+This is a study of whether or not maintenance therapy increases survival among patients with acute myelogenous leukemia, with survival time measured in weeks.    
+
+```{r}
+glimpse(aml)
+```
+
+The basic Cox model may be fitted as follows:   
+
+```{r}
+coxph(Surv(time, status) ~ x, data = aml)
+```
+
+Create a coarser time variable by expressing it in months instead of weeks as follows:   
+
+```{r}
+aml2 <- aml %>% 
+  as_data_frame() %>% 
+  mutate(time_month = time %/% 4 + if_else(time %% 4 == 0, 0, 1))
+```
+
+Now re-fit the model, modeling ties using the Breslow, Efron, and exact methods.   
+Which approximate method gives a result closest to that from the exact method?   
+
+```{r}
+# make list of `coxph`
+tie_methods <- c("exact", "breslow", "efron")
+lst_result <- map(tie_methods, ~ coxph(Surv(time_month, status) ~ x, data = aml2, ties = .))
+names(lst_result) <- tie_methods
+
+# make list of "coef"
+lst_coef <- map(c(1, 2, 3), ~ lst_result[[.]]$coef)
+names(lst_coef) <- tie_methods
+
+# View coefs
+lst_coef
+```
+
+2. Consider again the synthetic data in Chapter 4, discussed in Example.   
+
+```{r}
+(df3 <- tibble(patient = 1:6, 
+               survtime = c(6, 7, 10, 15, 19, 25), 
+               censor = c(1, 0, 1, 1, 0, 1), 
+               group = c("C", "C", "T", "C", "T", "T")))
+```
+
+Use the `basehaz` function to obtain an estimate of the baseline cumulative hazard function.    
+Use this to compute the predicted survival curves for the control and experimental groups based on the proportional hazards.   
+
+```{r}
+# view df3
+df3
+
+# fit cox proportional hazards model
+fit <- coxph(Surv(survtime, censor) ~ group, data = df3)
+summary(fit)   # HR = 0.2655
+
+# estimate hazard by K-M method 
+(KM <- survfit(Surv(survtime, censor) ~ 1, data = df3) %>% 
+  tidy() %>% 
+  select(1:4) %>% 
+  mutate(hazard = n.event / n.risk, cum_hazard = cumsum(hazard)))
+
+# estimate baseline cumulative hazard function
+baseline_hazard <- basehaz(fit, centered = FALSE)
+(baseline_hazard %>% mutate(surv_rate = exp(-hazard)))
+
+# compare baseline cumulative hazard vs K-M method
+KM %>% 
+  inner_join(rename(baseline_hazard, baseline_hazard = hazard), by = "time")
+```
+
