@@ -11,7 +11,8 @@ library(survminer)
 ```
 
 ### The hazard and survival function  
-The *survival function* defines the probability of surviving up to a point *t*.  
+The **survival function (*S(t)*)** defines the probability of surviving up to a point *t*.    
+(時間*T* = *t*の時に生存している確率)    
 
 $$
 S(t) = pr(T > t), \;\; 0 < t < \infty
@@ -19,15 +20,17 @@ $$
 This function takes the value 1 at time 0, decreases (or remains constant) over time, and of course never drops below 0.  
 <br />
 The survival function is often defined in terms of the hazard function, which is the instantaneous failure rate.  
-It is the probability that, given that a subject has survived up to time *t* ($pr(T > t)$),
-he or she fails in the next small interval of time ($\delta\to 0$), 
-divided by the length of that interval ($pr(t < T < t + \delta)$).  
+(時間*T* = *t*における瞬間死亡率みたいなもの)     
+
+It is the probability that, given that a subject has survived up to time *t* ($pr(T > t)$), he or she fails in the next small interval of time ($\delta\to 0$), divided by the length of that interval ($pr(t < T < t + \delta)$).    
+(時間*T* = *t*まで生存しているうち、$t < T < t + \delta$でイベントが発生する条件付き確率)      
 
 $$
 h(t) = \lim_{\delta\to 0}\frac{pr(t < T < t + \delta \; | \; T > t)}{\delta}\\
 $$
 <br />
-![](Fig2.1.png)  
+ハザードと生存曲線の関係は下図のような関係    
+<img src = "Fig2.1.png" width = 50%>
 <br />
 high mortality early in life: hazard function (a) and the corresponding survival function (b)  
 low initial hazard of death: hazard function (c) and the corresponding survival function (d)  
@@ -35,9 +38,8 @@ low initial hazard of death: hazard function (c) and the corresponding survival 
 
 + Example 1: US males and females in 2004  
 <br />
-![](Fig2.2.png)  
+<img src = "Fig2.2.png" width = 50%>  
 <br />
-
 + The initial days and weeks of life are particularly dangerous, and the risk recedes rapidly after the first month of life.  
 + The hazard increases during the teen years, then levels off, until it starts a steady increase in midlife.  
 + Males exhibit a higher mortality than females, as is well-known.  
@@ -50,7 +52,11 @@ The corresponding survival function is also shown. This example also demonstrate
 
 The cumulative distribution function (CDF), which is commonly used outside of survival analysis, is given by  
 $$
-F(t) = pr(T \leq t), \;\; 0 < t < \infty
+\begin{align}
+F(t) &= pr(T \leq t), \;\; 0 < t < \infty  \\
+     &= 1 - pr(T > t)   \\
+     &= 1 - S(t)
+\end{align}
 $$
 In survival analysis, this function is known as the *cumulative risk function* (not to be confused with the cumulative hazard defined below).  
 <br />
@@ -80,9 +86,10 @@ $$
 \begin{align}
 H(t) &= \int_{0}^{t}h(u)du\\
      &= \int_{0}^{t}\frac{f(u)}{S(u)}du\\
-     &= \int_{0}^{t}\frac{S'(u)}{S(u)}du\\
+     &= \int_{0}^{t}\frac{-S'(u)}{S(u)}du\\  
+     &= -[\log S(t)]^t_{0} \\
      &= -(\log S(t) - \log S(0))\\
-     &= -\log S(t) - log 1 \;\;\; (S(0) = 1)\\
+     &= -\log S(t) + log 1 \;\;\; (S(0) = 1)\\
      &= -\log S(t)
 \end{align}
 $$
@@ -96,7 +103,14 @@ S(t) &= \exp(-\int_{0}^{t} h(u)du \:) = \exp(-H(t))
 \end{align}
 $$
 
-It is the relationship that allows us to compute the survival function corresponding to a hazard function.  
+**It is the relationship that allows us to compute the survival function corresponding to a hazard function**.   
+$$
+\begin{align}
+f(t) &= F'(t) = -S'(t)   \\
+h(t) &= \frac{f(t)}{S(t)} \\
+H(t) &= -\log S(t)
+\end{align}
+$$
 <br />
 <br />
 
@@ -105,7 +119,8 @@ The mean survival is the expected value of the survival time,
 
 $$
 \begin{align}
-\mu &= E(T) = \int_{0}^{\infty} tf(t)dt\\
+\mu &= E(T)  \\
+    &= \int_{0}^{\infty} tf(t)dt\\
     &= \int_{0}^{\infty} tS'(t)dt\\
     &= \left[tS(t)\right]_0^\infty + \int_{0}^{\infty}S(t)dt\\
     &= \int_{0}^{\infty}S(t)dt \;\;\; (S(\infty) = 0) \\
@@ -121,7 +136,8 @@ The median survival time is defined as the time t such that $S(t) = 1/2$.
 ### Parametric survival distributions  
 #### expotential distribution
 Several survival distributions are available for modeling survival data.  
-The **exponential distribution**, the simplest survival distribution, has a constant hazard, $h(t) = \lambda$.
+The **exponential distribution**, the simplest survival distribution, has a constant hazard, $h(t) = \lambda$.  
+(ハザードが一定なら生存時間のPDF$f(t)$は指数分布にしたがう)     
 <br />
 The cumulative hazard function may be easily derived using the relationships in the previous section:  
 
@@ -145,10 +161,35 @@ E(T) &= \int_{0}^{\infty} S(t)dt\\
      &= 1/\lambda
 \end {align}
 $$
-The median is the value of *t* that satisfies $0.5 = e^{-\lambda t}$, so that $t_{med} = log(2)/\lambda$.  
+The median is the value of *t* that satisfies $0.5 = e^{-\lambda t}$, so that $t_{med} = log(2)/\lambda$.    
+
+**summary of exponential distribution**
+$$
+\begin {align}
+f(t) &= \lambda e^{- \lambda t} \\
+S(t) &= e^{- \lambda t}  \\
+h(t) &= \lambda \\
+E(T) &= 1/\lambda   \\
+t_{med} &= \log2/\lambda 
+\end {align}
+$$
+
+```{r}
+df <- tibble(x = 0:80)   # create age-data from 0 year old to 80 years old
+
+expSurv <- function(lambda) {
+  function(x) pexp(x, rate = lambda, lower.tail = FALSE)
+}
+
+ggplot(df, aes(x)) + 
+  stat_function(fun = expSurv(0.03), color = "red") +    # lambda = 0.03
+  geom_text(aes(x = 40, y = 0.5), label = "lambda = 0.03", color = "red") + 
+  labs(title = "Exponential Survival", x = "Time", y = "Survival probability")
+```
+
 
 #### Weibull distribution  
-The exponential distribution is easy to work with, but the constant hazard assumption is not often appropriate for describing the lifetimes of humans or animals.  
+The exponential distribution is easy to work with, but the constant hazard assumption is not often appropriate for describing the lifetimes of humans or animals. (ハザード一定の強い仮定がないと指数分布は適応できない)   
 The **Weibull distribution**, which offers more flexibility in modeling survival data, has hazard function  
 
 $$
@@ -168,9 +209,7 @@ and
 $$
 S(t) = e^{-(\lambda t)^{\alpha}}
 $$
-This plot shows the shape of the hazard for several parameter choices.  
-The exponential distribution is a special case with $\alpha = 1$.  
-It is monotone increasing for $\alpha > 1$ and monotone decreasing for $\alpha < 1$.  
+This plot shows the shape of the hazard for several parameter choices.    
 ```{r}
 alpha = c(1.5, 1, 0.75)
 lambda = c(0.03, 0.03, 0.03)
@@ -183,8 +222,6 @@ weibull <- function(alpha, lambda) {
 
 func_list <- map2(alpha, lambda, ~ weibull(.x, .y))
 
-df <- tibble(x = 0:80)
-
 ggplot(df, aes(x)) + 
   stat_function(fun = func_list[[1]], color = "red") +    # alpha = 1.5
   stat_function(fun = func_list[[2]], color = "black") +  # alpha = 1
@@ -196,19 +233,24 @@ ggplot(df, aes(x)) +
   
 ```
 
+The **exponential distribution is a special case with $\alpha = 1$**. ($\alpha = 1$なら$h(t)=\lambda$)    
+It is **monotone increasing for $\alpha > 1$** and **monotone decreasing for $\alpha < 1$**.     
+<br />
+
 The mean and median of the Weibull distribution are, respectively,   
 
 $$
 \begin {align}
 E(T) = \frac{\Gamma (1 + 1/\alpha)}{\lambda}\\
-t_{med } = \frac{(log2)^{1/\alpha}}{\lambda}\
+t_{med } = \frac{[\log(2)]^{1/\alpha}}{\lambda}\
 \end {align}
 $$
 
-For integers, the gamma function is given by $\Gamma (n) = (n - 1)!$.  
+For integers, the gamma function is given by $\Gamma (n) = (n - 1)!$.    
+<br />
 For the special case $\alpha = 1$, of course, the mean and median are identical to those of the exponential distribution. For non-integers, it must be evaluated numerically; in R, this may be done using the `gamma` function.  
  
-In R the functions `dweibull` and `pweibull` compute the p.d.f. and c.d.f., respectively, of the Weibull distribution.  
+In R the functions `dweibull` and `pweibull` compute the PDF and CDF, respectively, of the Weibull distribution.   
 These functions use the arguments “shape” and “scale” to represent the parameters $\alpha$ and $1/\lambda$, respectively.  
 To obtain the survival function, we can specify “lower.tail = F” as an option in the “pweibull” function.  
 For example, we can plot the Weibull survival function with $\alpha = 1.5$ and $\lambda = 0.03$ by first defining a function “weibSurv” with these parameters and then using the “curve” function to plot the curve as follows:  
@@ -230,7 +272,7 @@ ggplot(df, aes(x = x)) +
   labs(y = "Survival probability", x = "Time", title = "Weibull Survival")
 ```
 
-To plot the hazard function with this shape and scale, we can use the following code to first define the hazard function as the p.d.f. divided by the survival function,  
+To plot the hazard function with this shape and scale, we can use the following code to first define the hazard function as the PDF divided by the survival function,  
 ```{r}
 weibHaz <- function(x, shape, scale) {
   dweibull(x, shape = shape, scale = scale) / pweibull(x, shape = shape, scale = scale, lower.tail = FALSE)
@@ -251,6 +293,7 @@ ggplot(df, aes(x)) +
 
 We may generate random variables from the exponential or Weibull distribution using the functions “rexp” and “rweib”. For example, we may generate 1000 Weibull random variables with shape 1.5 and scale 1/0.03, and compute their mean and median, as follows:  
 ```{r}
+set.seed(1)
 tt.weib <- rweibull(1000, shape = 1.5, scale = 1 / 0.03)
 mean(tt.weib)
 quantile(tt.weib, c(0.25, 0.5, 0.75))
@@ -260,8 +303,20 @@ The theoretical mean and median, using Eqs are as follows:
 gamma(1 + 1 / 1.5) / 0.03      # mean
 (log(2) ^ (1 / 1.5)) / 0.03    # median
 ```
-The empirical mean and median are close to their theoretical values, as they must be.  
+The empirical mean and median are close to their theoretical values, as they must be.     
 <br />
+**summary of exponential distribution**
+$$
+\begin {align}
+f(t) &= \alpha \lambda (\lambda t)^{\alpha - 1}e^{-(\lambda t)^{\alpha}} \\
+S(t) &= e^{-(\lambda t)^{\alpha}}  \\
+h(t) &= \alpha \lambda (\lambda t)^{\alpha - 1} \\
+E(T) &= \frac{\Gamma (1 + 1/\alpha)}{\lambda}\\
+t_{med } &= \frac{[\log(2)]^{1/\alpha}}{\lambda} \\
+\end {align}
+$$
+<br />
+#### Gamma distribution     
 The **gamma distribution** (not to be confused with the gamma function) provides yet another choice for survival modeling.  
 The probability density function is given by
 
@@ -313,24 +368,19 @@ Other parametric families of survival distributions include the **log-normal** (
 
 ### A brief introduction to maximum likelihood estimation  
 
-The previous sections show us how to compute probabilities for a specific prob-ability distribution (e.g., exponential, Weibull, gamma) for specified values of the parameters.  
-For example, if we know that a random variable *T* has an exponential distribution with parameter $\lambda = 0.03$, we can directly compute the probability that *T* exceeds a particular value.  
-But suppose that we have a series of observations $t_1, t_2, ..., t_n$ from an exponential distribution with unknown parameter $\lambda$.  
-How can we estimate $\lambda$?.  
-<br />  
-The theory of **maximum likelihood estimation** provides a mathematical framework for doing this.  
-We may get an overview of the technique by considering a simple example using the exponential distribution.  
+パラメーター$\lambda$を得られたデータから推測したいので**maximum likelihood estimation**を利用.    
 <br />
-We construct a likelihood by taking a product of terms from the exponential distribution, one for each observation. If there is no censoring, the likelihood function takes the general form  
+We construct a likelihood by taking a product of terms from the exponential distribution, one for each observation. If there is no censoring, the likelihood function takes the general form    
+($t_1, t_2, ..., t_n$でイベントが起こる同時確率$L(\lambda:t_1, t_2, ..., t_n)$が最大になるような$\lambda$を求める)     
 
 $$
 L(\lambda:t_1, t_2, ..., t_n) 
   = f(t_1, \lambda)\cdot f(t_2, \lambda) \cdot\cdot\cdot\cdot f(t_n, \lambda) 
   = \prod_{i = 1}^{n} f(t_i, \lambda)
 $$
-If some observations are censored, we have to make an adjustment to this expression.  
-For an observation of an observed death, we put in the p.d.f. as above.  
-But for a right-censored observation, we put in the survival function, indicating that observation is known only to exceed a particular value.  
+ただしこれは打ち切りがなく全てのpatientsでイベントが観察された場合である。   
+<br />
+$t=t_i$で打ち切りがあった場合、本来は$f(t_i)$を使いたいが打ち切りの場合はいつイベントが起こるのかわからないので$S(t_i)$を代わりに代用    
 The likelihood in general then takes the form  
 
 $$
@@ -338,15 +388,21 @@ L(\lambda:t_1, t_2, ..., t_n)
   = \prod_{i = 1}^{n} f(t_i, \lambda)^{\delta_i}\cdot S(t_i, \lambda)^{1 - \delta_i}
   = \prod_{i = 1}^{n} h(t_i, \lambda)^{\delta_i}\cdot S(t_i, \lambda)
 $$
-This expression means that when $t_i$ is an observed death, the censoring indicator is $\delta_i = 1$, and we enter a **p.d.f.** factor.  
-When $t_i$ is a censored observation, we have $\delta_i = 0$ we enter a survival factor.  
-Alternatively, we may enter a hazard factor for each censored observation and a survival factor for every observation, censored or not.  
+
+  + $\delta_i = 1$ : $t_i$ is an observed death, and we enter a **PDF** factor ($f(t_i, \lambda)$).    
+  + $\delta_i = 0$ : $t_i$ is a censored observation, we enter a survival factor ($S(t_i, \lambda)$).    
+
 <br />
-For the exponential distribution the likelihood, we substitute the expressions for the p.d.f. and survival distributions, and simplify as follows:  
+Alternatively, we may enter a hazard factor for each censored observation and a survival factor for every observation, censored or not.  
+($h(t)$ならcensoringありなしで関係なく使える)     
+<br />
+For the exponential distribution the likelihood, we substitute the expressions for the PDF and survival distributions, and simplify as follows:     
+(上の尤度関数にexponetial distributeの式を代入)      
 
 $$
 L(\lambda) = \prod_{i = 1}^{n}[\lambda e^{-t_i/\lambda}]^{\delta_i}[e^{-\lambda t_i}]^{1 - \delta_i}
 $$
+
 Alternatively, we may substitute a hazard factor $\lambda$􏰃 for the censored observations and asurvivalfactor $e^{-\lambda t_i}$ for allobservations.  
 This of course leads to the same form for the likelihood function.  
 <br />
@@ -355,7 +411,8 @@ and amount of time of patients on the study, $V = \displaystyle \sum_{i = 1}^{n}
 
 This latter term is known in epidemiology as person-years (or person-months or person-days, according to the time unit).  
 We need to find the value of $\lambda$ that maximizes this function, and that value is known as the ***maximum likelihood estimate***.  
-Now, this product formula is difficult to work with, so we use a logarithmic transformation to convert it into a sum, known as the ***log-likelihood***,  
+Now, this product formula is difficult to work with, so we use a logarithmic transformation to convert it into a sum, known as the ***log-likelihood***,    
+(尤度$L(\lambda)$が最大をとる時、対数尤度$l(\lambda)$が最大になる。かつこの時、積が和に変更されるため計算が楽になる)      
 
 $$
 \begin{align}
@@ -376,8 +433,10 @@ We use standard calculus to find the first derivative, also called the **score f
 $$
 l'(\lambda) = \frac{d}{\lambda} - V
 $$
-which we set equal to zero to obtain the maximum likelihood estimate, $\hat{\lambda} = d / V$.  
-That is, our estimate is the number of deaths divided by the number of person-years.  
+
+which we set equal to zero to obtain the maximum likelihood estimate, $\hat{\lambda} = d / V$.     
+(最大値 or 最小値をとるには増減が変わるタイミングつまり$l'(\lambda) = \frac{d}{\lambda} - V = 0$が必要条件になる。)     
+That is, our estimate is the number of deaths divided by the number of person-years.    
 <br />
 Next, we compute the second derivative of the log-likelihood,  
 $$
@@ -385,8 +444,11 @@ l''(\lambda) = -\frac{d}{\lambda^{2}} = -I(\lambda)
 $$
 which, when we switch the sign, is known as the **information**.  
 This is important for two reasons.  
-+ First, since the information is positive (the second derivative is negative), the likelihood function is concave down, which shows that we have indeed found a maximum.  
+
++ First, since the information is positive (the second derivative is negative), the likelihood function is concave down, which shows that we have indeed found a maximum.   
+($l'(\lambda) = 0$かつ$l''(\lambda) = -I(\lambda) < 0$, つまり上に凸かつ増減が切り替えのタイミングつまり最大値と考えられる。)      
 + Second, using standard mathematical statistics theory, the inverse of the information is approximately the variance of the m.l.e.,  
+($I(\hat{\lambda})$はFisher情報量と言われ、逆数の$1/I(\hat{\lambda})$が推定値$\hat{\lambda}$の分散の近似値として使える)         
 
 $$
 var(\hat{\lambda})\approx I^{-1}(\lambda) = \lambda^2 / d
@@ -417,7 +479,8 @@ Table 1.
 There are three deaths, which gives us $d = 3$.  
 Also, the total patient time on study is $V = 7+6+6+5+2+4 = 30$.  
 
-The log-likelihood function is $l(\lambda) = 3\log{\lambda} - 30\lambda$, and the maximum likelihood estimate is given by $\hat{\lambda} = 3/30 = 1$.  
+The log-likelihood function is $l(\lambda) = 3\log{\lambda} - 30\lambda$, and the maximum likelihood estimate is given by $\hat{\lambda} = 3/30 = 0.1$.      
+
 ```{r}
 likelyhood <- function(lambda, d, V) {
     d * log(lambda) - V * lambda
@@ -429,6 +492,7 @@ ggplot(tibble(x = seq(0, 0.3, by = 0.01)), aes(x = x)) +
   geom_hline(yintercept = likelyhood(0.1, 3, 30), linetype = "dashed")
 
 ```
+
 Maximum likelihood methods may be applied to a wide range of statistical problems, using other distributions and more than one parameter, and (under technical conditions that are often satisfied), the m.l.e. is asymptotically normal with a mean that approaches the true mean of the parameter and a variance (or, when there are multiple parameters, a covariance matrix) that is the inverse of the information, or minus the second derivative of the log-likelihood theory.  
 The generality of the method makes it a central part of statistical theory and practice.  
 <br />

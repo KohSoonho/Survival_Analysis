@@ -506,7 +506,7 @@ Patient #4, a patient with metastatic disease (stage = “M”), entered on Marc
 <li><em>Example 4. Comparison of medical therapies to aid smokers to quit</em></li>
 </ul>
 <p>The purpose of this study was to evaluate extended duration of a triple-medication combination versus therapy with the nicotine patch alone in smokers with medical illnesses.<br />
-Patients with a history of smoking were randomly assigned to the triple-combination or patch therapy and followed for up to six months.<br />
+Patients with a history of smoking were randomly assigned to the triple-combination(grp = “combination”) or patch therapy(grp = “patchOnly”) and followed for up to six months.<br />
 The primary outcome variable was time from randomization until relapse (return to smoking); individuals who remained non-smokers for six months were censored.</p>
 <pre class="r"><code>pharmacoSmoking %&gt;% slice(1:6) %&gt;% select(2:8)</code></pre>
 <pre><code>##   ttr relapse         grp age gender     race employment
@@ -532,7 +532,7 @@ The primary outcome variable was time from randomization until relapse (return t
 ## 3  65      1 79     0  79          0  22.18883   NA       NA
 ## 4  38      1  5     1   5          1 106.78169    0 44.24411
 ## 5  57      1 11     1  11          1  98.49680    0 99.59232</code></pre>
-<p>The survival outcomes are “OS” (overall survival) and “RFS” (recurrence-free sur- vival), and the corresponding censoring indicators are “Death” and “Recurrence”.<br />
+<p>The survival outcomes are “OS” (overall survival) and “RFS” (recurrence-free survival), and the corresponding censoring indicators are “Death” and “Recurrence”.<br />
 <br /> <br /></p>
 </div>
 <div id="excerscises" class="section level3">
