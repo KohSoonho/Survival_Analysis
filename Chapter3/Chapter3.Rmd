@@ -6,21 +6,20 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
-library(broom)
 library(survival)
 library(survminer)
 library(asaur)
+library(broom)
 ```
 
 ### Nonparametric estimation of the survival function  
-We have seen that there are a wide variety of hazard function shapes to choose from if one models survival data using a parametric model.  
-But which parametric model should one use for a particular application?  
-When modeling human or animal survival, it is hard to know what parametric family to choose, and often none of the available families has sufficient flexibility to model the actual shape of the distribution.   
-Thus, in medical and health applications, nonparametric methods, which have the flexibility to account for the vagaries of the survival of living things, have considerable advantages.  
+When modeling human or animal survival, it is hard to know what parametric family to choose, and often none of the available families has sufficient flexibility to model the actual shape of the distribution.     
+パラメトリック推定は生存曲線が特定の確率分布をとるという強い仮定がある。     
+Thus, in medical and health applications, nonparametric methods, which have the flexibility to account for the vagaries of the survival of living things, have considerable advantages.    
+より流動的なノンパラ推定が好まれる   
 <br />
-In this chapter we will discuss non-parametric estimators of the survival function.    
 The most widely used of these is the product-limit estimator, also known as the **Kaplan-Meier estimator**.   
-This estimator, first proposed by Kaplan and Meier, is the product over the failure times of the conditional probabilities of surviving to the next failure time.  
+This estimator is the product over the failure times of the conditional probabilities of surviving to the next failure time.    
 <br />
 Formally, it is given by  
 
@@ -28,80 +27,85 @@ $$
 \hat{S}(t) = \prod_{t_i \leqq t} (1 - \hat{q}_i) = \prod_{t_i \leqq t} (1 - \frac{d_i}{n_i})
 $$
 
-where $n_i$ is the number of subjects at risk at time $t_i$, and $d_i$ is the number of individuals who fail at that time.  
+where $n_i$ is the number of subjects at risk at time $t_i$, and $d_i$ is the number of individuals who fail at that time.    
+
 ```{r}
 # Example:
-df <- tibble(
+(df <- tibble(
   patient = 1:6, 
   survival = c(7, 6, 6, 5, 2, 4), 
   status = c(0, 0, 1, 0, 1, 1)
-)
-
-df
+))
 
 # Fit K-M method
-fit <- survfit(Surv(survival, status) ~ 1, data = df)
+fit <- surv_fit(Surv(survival, status) ~ 1, data = df)
 
-(km_df <- tidy(fit) %>% 
-  mutate(q = n.event / n.risk, one_minus_q = 1 - q) %>% 
-  select(-estimate, -std.error, -conf.high, -conf.low, estimate) %>% 
-  mutate(estimate = round(estimate, 2)))
-
+(km_df <- surv_summary(fit) %>% 
+  mutate(q = (n.event / n.risk) %>% round(3), one_minus_q = (1 - q) %>% round(3), 
+         surv = surv %>% round(3)) %>% 
+  select(time, n.risk, n.event, n.censor, q, one_minus_q, surv))
 ```
 The columns represent, respectively, the failure time, the number **n.risk** at risk at that time, the number **n.event** who fail at that time, the failure probability $q = \frac{n.event}{n.risk}$, the conditional survival probability $1-q$, and the cumulative product, which is the estimate of the survival probability.  
-For example, the probability 0.667 of being alive at time $time = 4$ is the probability 0.833 of being alive at time $time = 2$ times the probability 0.800 of being alive at time $time = 4$ *given* that patients is alive at the previous time, and so on.
+($q = \frac{n.event}{n.risk}$が$t = t_i$でイベント起こる確率なのでその時点の生存確率は$1-q$。これを累積してかけていくことで生存確率の推定を行っていく。$t = 4$の時点での生存確率は$0.833 \times 0.8 = 0.667$)      
 <br />
-**Figure** shows the Kaplan-Meier estimate of the survivor function using these data.  
+Figure shows the Kaplan-Meier estimate of the survivor function using these data.  
 
-![](Fig3.1.png)
+<img src = "Fig3.1.png" width = 30%>
 
-This function is a non-increasing step function, and the open and closed circles explicitly show the right-continuity.  
-For example, $S(4) = 0.677$, while $S(3.99) = 0.833$.  
-In practice, the Kaplan-Meier function is plotted as a step function, with the indicators of right-continuity not shown.  
-
-The median survival time is at $t = 6$, which is the smallest time t such that $S(t) \leq 0.5$.  
+This function is a non-increasing step function, and the open and closed circles explicitly show the right-continuity. In practice, the Kaplan-Meier function is plotted as a step function, with the indicators of right-continuity not shown. The median survival time is at $t = 6$, which is the smallest time t such that $S(t) \leq 0.5$.  
 
 <br />  
 
 To obtain confidence limits for the product-limit estimator, we first use what is known as the **delta method** to obtain the variance of $\log{\hat{S(t)}}$.  
 $$
-var(\log{\hat{S(t)}}) = \displaystyle \sum_{t_i \leq t} var(\log{(1 - \hat{q})}) 
-                      \approx \displaystyle \sum_{t_i \leq t} \frac{d_i}{n_i(n_i - d_i)}
+\begin{align}
+var(\log{\hat{S(t)}}) &= \displaystyle \sum_{t_i \leq t} var(\log{(1 - \hat{q})})   \\
+                      &\approx \displaystyle \sum_{t_i \leq t} \frac{d_i}{n_i(n_i - d_i)}
+\end{align}
 $$
 
-To get the variance of $var(\hat{S(t)})$ itself, we use the **delta method** again to obtain  
-$$
-var(\hat{S(t)}) \approx [\hat{S(t)}]^2 \sum_{t_i \leq t} \frac{d_i}{n_i(n_i - d_i)}
-$$
-Unfortunately, confidence intervals computed based on this variance may extend above one or below zero.  
-While one could truncate them at one and zero, a more satisfying approach is to find confidence intervals for the complementary log-log transformation of $\hat{S(t)}$ as follow.
+To get the variance of $var(\hat{S(t)})$ itself, we use the **delta method** again to obtain     
+(c.f delta method: if a random variable $X$ has mean $\mu$ and variance $\sigma^2$, them $g(X)$ will have approximate mean $g(\mu)$ and approximate variance $\sigma^2 \cdot [g'(\mu)]^2$)    
 
 $$
-var(\log{[-\log{\hat{S(t)}}]}) \approx \frac{1}{[\log{\hat{S(t)}}]^2} \sum_{t_i \leq t} \frac{d_i}{n_i(n_i - d_i)}
+\begin{align}
+var(\hat{S(t)}) &= \exp(\log\hat{S(t)}) \\
+                &\approx var(\log\hat{S(t)}) \cdot \{ \exp{(\log\hat{S(t)})} \}^2 \\
+                &= [\hat{S(t)}]^2 \sum_{t_i \leq t} \frac{d_i}{n_i(n_i - d_i)}
+\end{align}
+$$
+Unfortunately, confidence intervals computed based on this variance may extend above one or below zero. (この信頼区間だと生存確率の区間が[0,1]を越えることがある。)    
+While one could truncate them at one and zero, a more satisfying approach is to find confidence intervals for the complementary log-log transformation of $\hat{S(t)}$ as follow. (この場合信頼区間が1を越えることはない)    
+
+$$
+\begin{align}
+var(\log{[-\log{\hat{S(t)}}]}) &\approx var(\log(\hat{S(t)})) \cdot ( -1 / \log\hat{S(t)})^2 \\
+                               &= \frac{1}{[\log{\hat{S(t)}}]^2} \sum_{t_i \leq t} \frac{d_i}{n_i(n_i - d_i)}
+\end{align}
 $$
 Obtain estimates of the Kaplan-Meier estimator in R for the data in Table 1, we first load the `survival` library, and then enter the data.  
-Note that the `Surv` function produces a special structure for censored survival data.  
+Note that the `Surv` function produces a special structure for censored survival data. (7+: time = 7で打ち切り、6: t = 6でイベント)      
 
 ```{r}
 # Apply K-M method
 Surv(df$survival, df$status)
 ```
-For the estimation itself we use the `survfit` function,  
+For the estimation itself we use the `survminer::surv_fit` function,  
 To compute confidence intervals based on our preferred method, the complementary log-log transformation, we have to explicitly specify that.   
 
 ```{r}
 # View log_fit and log_log_fit
-(log_fit <- survfit(Surv(survival, status) ~ 1, data = df, conf.type = "log"))  # default
-(log_log_fit <- survfit(Surv(survival, status) ~ 1, data = df, conf.type = "log-log"))
+(log_fit <- surv_fit(Surv(survival, status) ~ 1, data = df, conf.type = "log"))  # default
+(log_log_fit <- surv_fit(Surv(survival, status) ~ 1, data = df, conf.type = "log-log"))
 
 # View summary of log_fit and log_log_fit
 # confidence intervals above is truncated at one
 summary(log_fit)
 summary(log_log_fit)
 
-# View fit by broom::tidy
-tidy(log_fit)
-tidy(log_log_fit)
+# View fit by survminer::surv_summary
+surv_summary(log_fit)
+surv_summary(log_log_fit)
 
 # Plot fit
 plot(log_fit)
@@ -114,33 +118,34 @@ ggsurvplot(log_log_fit)
 ```
 
 An alternative estimator of the survival function is known as the **Nelson–Aalen estimator**.  
-It is based on the relationship of the survival function to the hazard function.  
-An estimate of the cumulative hazard function is the sum of the estimated hazards up to a time $t_i$:  
+It is based on the relationship of the survival function to the hazard function. An estimate of the cumulative hazard function is the sum of the estimated hazards up to a time $t_i$:    
+
 $$
 H(t) = \displaystyle \sum_{t \leq t_i} \frac{d_i}{n_i}
 $$
 and the survival function estimate is simply
+
 $$
 S(t) = e^{-H(t)}
 $$
-In R, the **Nelson–Altschuler estimate** may be obtained using the `survfit` function with the option `type = "fh"`, the letters “fh” being taken from the initials of **Fleming and Harrington**:  
+
+In R, the **Nelson–Altschuler estimate** may be obtained using the `surv_fit` function with the option `type = "fh"`, the letters “fh” being taken from the initials of **Fleming and Harrington**:    
 
 ```{r}
 # Fit by Nelson-Aalen
-(fit_fh <- survfit(Surv(survival, status) ~ 1, data = df, conf.type = "log-log", type = "fh"))
+(fit_fh <- surv_fit(Surv(survival, status) ~ 1, data = df, conf.type = "log-log", type = "fh"))
 
 # View summary
-tidy(fit_fh)
+surv_summary(fit_fh)
 
 # View data 
-tidy(fit_fh) %>% 
-  mutate(hazard = n.event / n.risk, cum_hazard = cumsum(hazard)) %>% 
-  select(time, starts_with("n."), ends_with("hazard"), estimate)
+surv_summary(fit_fh) %>% 
+  mutate(hazard = (n.event / n.risk) %>% round(3), cum_hazard = cumsum(hazard), 
+         surv = round(surv, 3)) %>% 
+  select(time, starts_with("n."), ends_with("hazard"), surv)
 ```
 
-We now consider data from an actual clinical trial.  
-The data set `gastricXelox` is a Phase II (single sample) clinical trial of the chemotherapeutic agent Xelox administered to patients with advanced gastric cancer prior to surgery.  
-The primary outcome of interest is “progression-free survival.”   
+We now consider data from an actual clinical trial. The data set `gastricXelox` is a Phase II (single sample) clinical trial of the chemotherapeutic agent Xelox administered to patients with advanced gastric cancer prior to surgery. The primary outcome of interest is “progression-free survival.(PFS)”   
 
 ```{r}
 head(gastricXelox)
@@ -151,17 +156,18 @@ df_xelox <- gastricXelox %>%
   rename(month = timeWeeks)
 
 # Fit k-m method
-km_xelox <- survfit(Surv(month, delta) ~ 1, data = df_xelox, conf.type = "log-log")
+km_xelox <- surv_fit(Surv(month, delta) ~ 1, data = df_xelox, conf.type = "log-log")
 
 # Plot k_m curve
 ggsurvplot(km_xelox)
 
 ```
 
-### Finding the median survival and a confidence interval for the median  
+### Finding the median survival and a confidence interval for the median    
 Formally, the median survival time may be defined as $\hat{t_{med}} = \inf{ \{t: \hat{S(t)}\leq 0.5  \} }$ ;  
 that is, it is the smallest *t* such that the survival function is less than or equal to 0.5.  
 To find a $1-\alpha$ confidence interval for the median, we consider the following inequality:  
+
 $$
 -z_{\alpha / 2} \leq 
 \frac{g\{ \hat{S(t)} \} - g(0.5)}{\sqrt{var[g\{ \hat{S(t)} \}]}} \leq  
@@ -170,58 +176,55 @@ $$
 
 where $g(u) = \log{[\log(u)]}$ and $var[g\{ \hat{S(t)} \}]$ is given by before Eq.  
 To obtain a 95% confidence interval, we search for the smallest value of *t* such that the middle of the expression is at least -1.96 (for the lower limit) and the largest value of *t* such that the middle expression does not exceed 1.96 (for the upper limit).  
-By default, the `survfit` function prints out 95% confidence limits for the median.  
-To obtain the median survival time for the gastric cancer data, and a 95% confidence interval, just enter the result of the `survfit` function:  
+By default, the `surv_fit` function prints out 95% confidence limits for the median.  
+To obtain the median survival time for the gastric cancer data, and a 95% confidence interval, just enter the result of the `surv_fit` function:  
+
 ```{r}
 km_xelox
 ```
 Here we see that the median PFS time is 10.30 months, and a 95% confidence interval ranges from 5.79 to 15.27 months.   
+
 ```{r}
-df_km <- tidy(km_xelox)
-df_median <- df_km %>% filter(estimate <= 0.5) %>% select(time) %>% summarise(x = first(time))
-df_low <- df_km %>% filter(conf.low <= 0.5) %>% select(time) %>% summarise(x = first(time))
-df_high <- df_km %>% filter(conf.high <= 0.5) %>% select(time) %>% summarise(x = first(time))  
+# extract MST and 95% C.I.
+median_ci <- map_dbl(c("median", "lower", "upper"), 
+                     ~ surv_median(km_xelox) %>% pull(.x))
 
-median_ci <- c(df_median$x, df_low$x, df_high$x)
-
-ggsurvplot(km_xelox, color = "black") + 
-  geom_hline(aes(yintercept = 0.5), color = "red", linetype = "dashed") + 
+ggsurvplot(km_xelox, color = "black") %++% 
+  geom_hline(aes(yintercept = 0.5), color = "red", linetype = "dashed") %++% 
   geom_segment(aes(x = median_ci[1], xend = median_ci[1], y = -Inf, yend = 0.5), 
-               color = "green", linetype = "dashed") + 
+               color = "green", linetype = "dashed") %++% 
   geom_segment(aes(x = median_ci[2], xend = median_ci[2], y = -Inf, yend = 0.5), 
-               color = "blue", linetype = "dashed") + 
+               color = "blue", linetype = "dashed") %++% 
   geom_segment(aes(x = median_ci[3], xend = median_ci[3], y = -Inf, yend = 0.5), 
                color = "blue", linetype = "dashed")
 ```
 
 ### Median follow-Up time
-One measure of the quality of a clinical trial is the duration of follow-up, as measured by the median follow-up time.  
-This is a measure that captures how long, on average, patients have been followed. But defining this median is not straightforward.   
-A simple definition is to consider all of the survival times, whether censored or not, and find the median.  
-A disadvantage of this is that a trial with many early deaths, but a long observation period, would appear not to have a long median follow-up time.  
-A perhaps better way of looking at median survival is the “potential” median survival.  
-To obtain this estimate, one first switches the censoring and death indicators, so that a “censored” observation is the “event”, while a death is viewed as a censored observation, in the sense that the observation time would have been much longer had the patient not died.  
-One then computes the Kaplan- Meier “survival” estimate using these reversed censoring indicators, and finds the median survival, as discussed in the previous section. This method is also known as the **“reverse” Kaplan-Meier**.  
+One measure of the quality of a clinical trial is the duration of follow-up, as measured by the median follow-up time. This is a measure that captures how long, on average, patients have been followed.     
+A simple definition is to consider all of the survival times, whether censored or not, and find the median. A disadvantage of this is that a trial with many early deaths, but a long observation period, would appear not to have a long median follow-up time. (単純に打ち切り関係なく観察期間の中央値をmedian follow-up timeとすると長期間の研究かつ早期脱落が多いとmedian follow-up timeがかなり小さくなってしまう)     
 
 ```{r}
 # Simple median follow-up
 df_xelox %>% 
   summarise(median = median(month))  
+```
 
+A perhaps better way of looking at median survival is the **“potential” median survival**.  
+To obtain this estimate, one first switches the censoring and death indicators, so that a “censored” observation is the “event”, while a death is viewed as a censored observation, in the sense that the observation time would have been much longer had the patient not died. (打ち切りをfollow-up終了のイベント、イベントをfollow-up終了の打ち切りと捉える)       
+One then computes the Kaplan- Meier “survival” estimate using these reversed censoring indicators, and finds the median survival, as discussed in the previous section. This method is also known as the **“reverse” Kaplan-Meier**.   
+
+```{r}
 # Potential follow-up
 survfit(Surv(month, delta == 0) ~ 1, data = df_xelox)
-
 ```
+
 The simple median follow-up time is only 9.95 months, whereas the potential follow-up time is 27.8 months.  
 
 ### Obtaining a smoothed hazard and survival function estimate  
-In some applications we may wish to examine the hazard function in addition to the survival curve.  
-The hazard function at the *i*th failure time is $d_i / t_i$, the number of deaths at that time divided by the number at risk at that time.  
-In fact, the **Nelson-Altschuler estimate** of the cumulative hazard function at time $t_i$, given in the previous section, is the sum of these hazard estimates up to that time.  
-Unfortunately, this estimate of the hazard function is quite unstable from one time to the next, and thus is of limited value in illustrating the true shape of the hazard function.  
-A better way to visualize the hazard function estimate is by using a **kernel smoother**.  
-A kernel is a function $K(u)$, which we center at each failure time.  
-Typically we choose a smooth-shaped kernel, with the amount of smoothing controlled by a parameter *b*.  
+The **Nelson-Altschuler estimate** of the cumulative hazard function at time $t_i$, given in the previous section, is the sum of these hazard estimates up to that time. However, this estimate of the hazard function is quite unstable from one time to the next, and thus is of limited value in illustrating the true shape of the hazard function. (KM推定やNAA推定はstep-functionでありハザードの推定にはやや限界がある...)         
+A better way to visualize the hazard function estimate is by using a **kernel smoother**. A kernel is a function $K(u)$, which we center at each failure time. Typically we choose a smooth-shaped kernel, with the amount of smoothing controlled by a parameter *b*.   
+(カーネル関数はdensity plotと同じ原理で確率密度関数fからとった標本より作成したカーネル関数の組み合わせによりもともとの確率分布を推定する方法)     
+
 <br />
 The estimate of the hazard function is given by  
 
@@ -232,13 +235,14 @@ $$
 where $t_{(1)}<t_{(2)}<\cdot \cdot \cdot<t_{(D)}$ are distinct ordered failure times, the subscript "*(i)*" in $t_{(i)}$ indicates that this is the *i*'th ordered failure time, $d_i$ is the number of deaths at time $t_{(i)}$, and $n_i$ is the number at risk at that time.  
 Note that in the special case where the kernel function $K(u) = 1$ when *u* is a failure time and zero elsewhere, this estimator is just the **Nelson-Altschuler hazard estimator**.  
 While there are many ways to define the kernel function, a common one is the **Epanechnikov kernel**, $K(u) = \frac{3}{4} (1 - u^2)$, defined for $-1\leq u \leq 1$, and zero elsewhere.  
-In the above formula for the hazard, there is one kernel function placed at each failure time, scaled by the smoothing parameter *b*. Larger values of *b* result in wider kernel functions, and hence more smoothing.   
+In the above formula for the hazard, there is one kernel function placed at each failure time, scaled by the smoothing parameter *b*. Larger values of *b* result in wider kernel functions, and hence more smoothing. (b:バンド幅が広くなるとよりsmoothになる)     
 <br />
 
 This is illustrated in below Fig. Here the three failure times $t = 2, 4, 6$ are indicated by gray triangles, and the kernels, adjusted for height as in equation, are dashed gray.  
 The sum, the smoothed estimate of the hazard, is given by the blue curve.  
 
-![](Fig4.1.png)
+<img src = "Fig3.2.png" width = 50%>
+
 One problem with this simple approach to hazard estimation is that a kernel may put mass at negative times.   
 In the above example, the first kernel function is centered at time $t = 2$, and it ranges from $t-b = 2 - 2.5 = -0.5$ to $2 + 2.5 = 4.5$.  
 Since the minimum time is 0, the actual area under the first kernel is too small. To correct for this, one may use a modified Epanechnikov kernel; for details, see Muller and Wang.  
@@ -269,10 +273,10 @@ The hazard estimate using this method may be obtained using the `pehaz` function
 ```{r}
 # Hazard estimate
 pe5_hazard <- pehaz(df_xelox$month, df_xelox$delta, 
-                    width = 5, max.time = 20)  # step function for 5-month intervals
+                    width = 5, max.time = 20)  # step function for 5-month intervals (5ヶ月毎のハザード)
 
 pe1_hazard <- pehaz(df_xelox$month, df_xelox$delta, 
-                    width = 1, max.time = 20)  # step function for 1-month intervals
+                    width = 1, max.time = 20)  # step function for 1-month intervals (1ヶ月毎のハザード)
 
 smooth_hazard <- muhaz(df_xelox$month, df_xelox$delta, 
                        bw.smooth=20, b.cor="left", max.time=20) # smooth-estimation
@@ -280,19 +284,14 @@ smooth_hazard <- muhaz(df_xelox$month, df_xelox$delta,
 plot(pe5_hazard, ylim=c(0,0.15), col="black")  
 lines(pe1_hazard)
 lines(smooth_hazard)
-
 ```
 
-Here we choose a smoothing parameter $b = 20$. The parameter “b.cor” is set to “left” to indicate that we want a boundary correction at the left, for small times *t*.  
-Selection of the appropriate amount of smoothing is one of the most difficult problems in non-parametric hazard estimation.  
-If the bandwidth parameter is too small, the estimate may gyrate widely.  
-Chose a parameter too wide and the hazard function may be too smooth to observe real variations in the hazard function over time.   
-The `muhaz` function includes an automatic method for selecting a variable width bandwidth, so that for time regions with few events, a wider smoothing parameter is used than for time regions densely populated with events.
-To use this automatic variable bandwidth procedure, set the parameter “bw.option” equal to “local” instead of “global”.  
+Here we choose a smoothing parameter $b = 20$. The parameter “b.cor” is set to “left” to indicate that we want a boundary correction at the left, for small times *t*. Selection of the appropriate amount of smoothing is one of the most difficult problems in non-parametric hazard estimation. (パラメーターの調整は実際難しい... If the bandwidth parameter is too small, the estimate may gyrate widely. Chose a parameter too wide and the hazard function may be too smooth to observe real variations in the hazard function over time.)   
+The `muhaz` function includes an automatic method for selecting a variable width bandwidth, so that for time regions with few events, a wider smoothing parameter is used than for time regions densely populated with events. To use this automatic variable bandwidth procedure, set the parameter “bw.option” equal to “local” instead of “global”. (よりイベントが少ない部分でbを大きくするように自動で調整)     
 More information about the use of `pehaz` and `muhaz` may be obtained from the R help system.  
 
-One use of smoothing the hazard function is to obtain a smooth estimate of the survival function, using there lationship $\hat{S(t)} = e^{-\int_{0}^{\infty \hat{h(u)}du} }$.  
-To get estimation we need to extract the hazard estimate and list of times at which the hazard is estimated as follows:  
+One use of smoothing the hazard function is to obtain a smooth estimate of the survival function, using there lationship $\hat{S(t)} = e^{-\int_{0}^{\infty \hat{h(u)}du} }$. To get estimation we need to extract the hazard estimate and list of times at which the hazard is estimated as follows:   
+
 ```{r}
 # extract hazard estimation
 smooth_hazard_xelox <- smooth_hazard$haz.est
@@ -314,10 +313,7 @@ lines(smooth_survival_xelox ~ smooth_time_xelox[1:(length(smooth_time_xelox) - 1
 ```
 
 The smoothed hazard function follows the survival curve fairly well.  
-Only the first 30 months are shown here, because the smoothing procedure doesn’t produce estimates beyond the last failure time.  
-While certain specialized applications may require a smooth survival curve estimate, most published studies of survival data prefer to report the Kaplan-Meier step function estimate.  
-This estimate has the theoretical property of being the maximum likelihood estimate of the survival function.  
-In addition, the step function plot is an effective visual display of the data, in that it shows when the failures and censoring times occurred.  
+Only the first 30 months are shown here, because the smoothing procedure doesn’t produce estimates beyond the last failure time.(カーネル法では最終イベントの後は推定できない、smoothing methodより最尤推定の理論が明確出会ったり、イベントや打ち切りのポイントが明示されるので実際はK-M法の法が好まれて使われる)    
 
 ### Left Truncation  
 While we have focused on right censoring as a type of incomplete data, there is another type of incompleteness, called “left truncation,” which we are sometimes faced with.   
@@ -326,17 +322,16 @@ To understand left truncation, consider again the data from `df`.
 (df2 <- df %>% 
   mutate(diagnosis = c(-2, -3, -5, -3, -2, -5), 
          surv_from_diag = abs(diagnosis) + survival, 
-         patient = parse_character(patient)) %>% 
+         patient = as.character(patient)) %>% 
   bind_rows(tibble(patient = "X", survival = -2, status = 1, diagnosis = -4, surv_from_diag = NA)) %>% 
   select(patient, diagnosis, everything())
   )
 ```
 
-Now, instead of examining the time from entry into the clinical trial until censoring or death, let us use as the time origin the time of diagnosis.   
-The time from diagnosis to death (or censoring) may be of more practical interest than the time from entry into the trial to death.   
+Now, instead of examining the time from entry into the clinical trial until censoring or death, let us use as the time origin the time of diagnosis. The time from diagnosis to death (or censoring) may be of more practical interest than the time from entry into the trial to death.   
 To get this additional information, we interview each patient when he or she enters the trial to determine the time that the disease was diagnosed. (“backward recurrence times”)  
 For example, Patient 1 was diagnosed 2 time units before entry into the trial, and was censored at time 7, which refers to the time from entry into the trial until censoring.   
-Then the total time from diagnosis to censoring is $7 + 2 = 9$ time units.
+Then the total time from diagnosis to censoring is $7 + 2 = 9$ time units.     
 
 ```{r}
 # Plot df2 data
@@ -350,7 +345,8 @@ ggplot(df2) +
   scale_shape_manual(values = c(1, 4)) + 
   scale_y_discrete(limits = c("X", "6", "5", "4", "3", "2", "1"))
 ```
-Entry into the trial is still at time 0, but we have added diagnosis times, indicated by triangles. “Patient X,” as discussed in `df2`.  
+
+Entry into the trial is still at time 0, but we have added diagnosis times, indicated by triangles. “Patient X,” as discussed in `df2`.    
 
 ```{r}
 # Realign so that the time of diagnosis is time 0
@@ -363,15 +359,16 @@ Entry into the trial is still at time 0, but we have added diagnosis times, indi
   scale_shape_manual(values = c(1, 4)) + 
   geom_vline(xintercept = 0) + 
   scale_y_discrete(limits = c("6", "5", "4", "3", "2", "1")))
-
 ```
-Here, “Patient X” is no longer shown; such a patient would have died before he or she were able to register for the clinical trial, and thus would not have been observed.  
+
+Here, “Patient X” is no longer shown; such a patient would have died before he or she were able to register for the clinical trial, and thus would not have been observed.(entryからではなくdiagnosisからたどろうとするとdiagnosis後、entry前に脱落したpatientsを観察できない)   
 What are shown are times from diagnosis to death (or censoring), and “left truncation” times.  
 Had a patient died during one of these intervals (denoted by dashed lines) that patient would not have been observed.  
 To obtain an unbiased estimate of the survival distribution, we need to condition on the survival time being greater than the left truncation time.  
 To do this, we construct the **Kaplan-Meier estimator** as we did earlier, but now a patient only enters the risk set at the left truncation time.  
 Thus, unlike before, the size of the risk set can increase as well as decrease.   
-For example, the first death is Patient 5, at time 4. at that time, patients 1, 3, 4, and 5 are in the risk set. After that patient dies, Patients 2 and 6 enter the risk set, and Patient 4 is censored at time 8. Thus, at time 9, then Patient 6 dies, patients 1, 3, and 6 are at risk.  
+For example, the first death is Patient 5, at time 4. at that time, patients 1, 3, 4, and 5 are in the risk set. After that patient dies, Patients 2 and 6 enter the risk set, and Patient 4 is censored at time 8. Thus, at time 9, then Patient 6 dies, patients 1, 3, and 6 are at risk.   
+(K-M法を応用してdiagnosisを0としてentryでat.riskを+1, eventやcensorでat.riskを-1event数は今まで通りに扱う)       
 
 ```{r}
 left_trunc_plot + 
@@ -382,35 +379,35 @@ left_trunc_plot +
 
 In R, we may obtain both estimates as follows:  
 ```{r}
-df2_complete <- na.omit(df2) 
+df2_complete <- na.omit(df2) %>% 
+  mutate(entry = -diagnosis)
 
 # KM method
-left_trunc_km <- survfit(Surv(-diagnosis, surv_from_diag, status, type = "counting") ~ 1, 
-                         data = df2_complete, conf.type="none")
+left_trunc_km <- surv_fit(Surv(entry, surv_from_diag, status, type = "counting") ~ 1, 
+                          data = df2_complete, conf.type="none")
 
 # NAA method
-left_trunc_naa <- survfit(Surv(-diagnosis, surv_from_diag, status, type = "counting") ~ 1, 
-                         data = df2_complete, type="fleming-harrington", conf.type="none")
+left_trunc_naa <- surv_fit(Surv(entry, surv_from_diag, status, type = "counting") ~ 1, 
+                           data = df2_complete, type="fleming-harrington", conf.type="none")
 
 # Make summary of survfit
 (left_trunc_mod_df <- tibble(time = left_trunc_km$time, 
-                            n.risk = left_trunc_km$n.risk, 
-                            n.event = left_trunc_km$n.event, 
-                            hazard = n.event / n.risk) %>% 
+                             n.risk = left_trunc_km$n.risk, 
+                             n.event = left_trunc_km$n.event, 
+                             hazard = n.event / n.risk) %>% 
                       filter(n.event != 0) %>% 
-                      mutate(surv_km = cumprod(1 - hazard), # KM method
-                      cum_hazard = cumsum(hazard),  
-                      surv_naa = exp(-cum_hazard)))         # NAA method
+                      mutate(surv_km = cumprod(1 - hazard) %>% round(3), # KM method
+                             cum_hazard = cumsum(hazard),  
+                             surv_naa = exp(-cum_hazard) %>% round(3))) # NAA method
 
 # Summary of left_trunc_km
 summary(left_trunc_km)
 
 # Summary of left_trunc_NAA
 summary(left_trunc_naa)
-
 ```
 
-We have used the terms "-diagnosis" and “surv_from_diag” for the left truncation and survival times, respectively.   
+We have used the terms "entry" and “surv_from_diag” for the left truncation and survival times, respectively.   
 The reason is derived from the counting process theory, where a subject “enters” the observation period at a particular time and then “exits” it at the time of death or censoring; events that may occur outside of this observation period are not visible to us.  
 <br / >
 
@@ -436,25 +433,16 @@ CH_male <- ChanningHouse %>%
   filter(sex == "Male")  
 
 # KM method
-CH_male_km <- survfit(Surv(entry, exit, cens, type = "counting") ~ 1, data = CH_male)
+CH_male_km <- surv_fit(Surv(entry, exit, cens, type = "counting") ~ 1, data = CH_male)
 
 # NAA method
-CH_male_NAA <- survfit(Surv(entry, exit, cens, type = "counting") ~ 1, data = CH_male, type = "fh")
+CH_male_NAA <- surv_fit(Surv(entry, exit, cens, type = "counting") ~ 1, data = CH_male, type = "fh")
 
 # KM method (Age > 68)
-CH_male_km_68 <- survfit(Surv(entry, exit, cens, type = "counting") ~ 1, start.time = 68, data = CH_male)
+CH_male_km_68 <- surv_fit(Surv(entry, exit, cens, type = "counting") ~ 1, start.time = 68, data = CH_male)
 
 # Make summary data frame
-tidy(CH_male_km) %>% 
-  select(1:4) %>% 
-  filter(n.event != 0) %>% 
-  mutate(hazard = n.event / n.risk, 
-         surv_km = cumprod(1 - hazard),   # KM method
-         cum_hazard = cumsum(hazard),  
-         surv_naa = exp(-cum_hazard))     # NAA method
-
-# Make summary data frame (Age > 68)
-tidy(CH_male_km_68) %>% 
+surv_summary(CH_male_km) %>% 
   select(1:4) %>% 
   filter(n.event != 0) %>% 
   mutate(hazard = n.event / n.risk, 
@@ -463,18 +451,26 @@ tidy(CH_male_km_68) %>%
          surv_naa = exp(-cum_hazard)) %>% # NAA method
   tbl_df()
   
-plot(CH_male_km, xlim = c(64, 101), conf.int = FALSE)
-lines(CH_male_NAA, conf.int = FALSE, col = "blue")
-lines(CH_male_km_68, conf.int = FALSE, col = "green")
+# Make summary data frame (Age > 68)
+surv_summary(CH_male_km_68) %>% 
+  select(1:4) %>% 
+  filter(n.event != 0) %>% 
+  mutate(hazard = n.event / n.risk, 
+         surv_km = cumprod(1 - hazard),   # KM method
+         cum_hazard = cumsum(hazard),  
+         surv_naa = exp(-cum_hazard)) %>% # NAA method
+  tbl_df()
 
+ggsurvplot_combine(list(CH_male_km, CH_male_NAA, CH_male_km_68), 
+                   xlim = c(64, 101))
 ```
   
-The black curve is the Kaplan-Meier estimate; it plunges to zero at age 65 because, at this early age, the size of the risk set is small, and in fact reduces to 0. This forces the survival curve to zero. And, since the Kaplan-Meier curve is a cumulative product, once it reaches zero it can never vary from that.      
-The NAA estimate, shown in blue, is based on exponentiating a cumulative sum, so it doesn’t share this problem of going to zero early on.  
-Still, it does take an early plunge, also due to the small size of the risk set at the younger ages.  
-The problem here is that there is too little data to accurately estimate the overall survival distribution of men.  
+The red curve is the Kaplan-Meier estimate; it plunges to zero at age 65 because, at this early age, the size of the risk set is small, and in fact reduces to 0. This forces the survival curve to zero. And, since the Kaplan-Meier curve is a cumulative product, once it reaches zero it can never vary from that.      
+(若い人のデータが少なくて、KM法ではこの時点でsurvivalが0になってしまうので以降は0のまま推移... 詳しくはsurv_summaryを参照)    
+The NAA estimate, shown in green, is based on exponentiating a cumulative sum, so it doesn’t share this problem of going to zero early on. (NAAだと多少ましだがそれでもまだひどい)   
+Still, it does take an early plunge, also due to the small size of the risk set at the younger ages. The problem here is that there is too little data to accurately estimate the overall survival distribution of men.     
 Instead, we can condition on men reaching the age of 68, using the “start.time” option, and estimate the survival among that cohort (see above):  
-This survival curve, shown in green, is much better behaved.   
+This survival curve, shown in blue, is much better behaved. (データの少ない若年層のデータをトリムすると生存曲線はかなりいい感じになる)   
 So the only solution to the problem of a small risk set with left-truncated data is to select a realistic target (here, survival of men conditional on living to age 68) for which there is sufficient data to obtain a valid estimate.  
 <br />  
 
@@ -485,60 +481,38 @@ Explain why the upper limit of the confidence interval is undefined.
 
 ```{r}
 # plot km from df (log-log method)
-ggsurvplot(log_log_fit)
+ggsurvplot(log_log_fit) %++% 
+  geom_hline(aes(yintercept = 0.5), linetype = "dashed")
 
-# making df
-df_log_log_fit <- log_log_fit %>% tidy() %>% tbl_df()
-
-# extract median
-median_log_log_fit <- filter(df_log_log_fit, estimate <= 0.5) %>% 
-  summarise(median = first(time)) %>% 
-  pull()
-
-# extract conf.low
-lower_log_log_fit <- filter(df_log_log_fit, conf.low <= 0.5) %>% 
-  summarise(lower = first(conf.low)) %>% 
-  pull()
-
-# extract conf.high
-upper_log_log_fit <- filter(df_log_log_fit, conf.high <= 0.5) %>% 
-  summarise(upper = first(conf.high)) %>% 
-  pull()  # upper does not reach 0.5, and undefined.
-
+# extract MST and 95% C.I.
+surv_median(log_log_fit)
+# upper C.I. does not reach survival probability <= 50%, so median upper is undefined
 ```
 
 
 3.2. Find the first and third quartiles, and 95% confidence intervals for these quartiles in `gastricXelox`. If any of these quantities are undefined, explain.  
 
 ```{r}
-# detect 0.25% and 0.75%, and 95% confident intervals
-(df_km_2 <- df_km %>% 
-  mutate(quant_low = estimate - std.error * qnorm(0.75), 
-         quant_high = estimate + std.error * qnorm(0.75)) %>% 
-  tbl_df())
+# plot km_xelox
+ggsurvplot(km_xelox) %++% 
+  geom_hline(aes(yintercept = 0.5), linetype = "dashed") %++% 
+  geom_hline(aes(yintercept = 0.75), linetype = "dashed") %++% 
+  geom_hline(aes(yintercept = 0.25), linetype = "dashed")
 
-# 25% quantile
-df_km_2 %>% filter(quant_low <= 0.5) %>% 
-  summarise(quant_low = first(quant_low)) %>% 
-  pull()
+df_surv_xelox <- surv_summary(km_xelox)
 
-# 75% quantile
-df_km_2 %>% filter(quant_high <= 0.5) %>% 
-  summarise(quant_high = first(quant_high)) %>% 
-  pull()
+# median survival time
+surv_median(km_xelox)
 
-# 95% conf.high
-df_km_2 %>% filter(conf.low <= 0.5) %>% 
-  summarise(conf.low = first(conf.low)) %>% 
-  pull()
+# third quartiles
+summarize(filter(df_surv_xelox, surv <= 0.75), first(time))
+summarize(filter(df_surv_xelox, lower <= 0.75), first(time))
+summarize(filter(df_surv_xelox, upper <= 0.75), first(time))
 
-# 95% conf.low
-df_km_2 %>% filter(conf.high <= 0.5) %>% 
-  summarise(conf.high = first(conf.high)) %>% 
-  pull()
-
-ggsurvplot(km_xelox)
-
+# first quartiles
+summarize(filter(df_surv_xelox, surv <= 0.25), first(time))
+summarize(filter(df_surv_xelox, lower <= 0.25), first(time))
+summarize(filter(df_surv_xelox, upper <= 0.25), first(time))
 ```
 
 
@@ -592,12 +566,11 @@ CH_male_68 <- CH_male %>%
 head(CH_male_68)
 
 # survfit data devided by age
-survfit(Surv(exit, cens) ~ 1, data = CH_male_68)
+(CH_male_km_68_biased <- surv_fit(Surv(exit, cens) ~ 1, data = CH_male_68))
 CH_male_km_68
 
 # plot K-M curve ignoring left-trunc
-plot(survfit(Surv(exit, cens) ~ 1, data = CH_male_68), xlim = c(65, 101), conf.int = "none") 
-lines(CH_male_km_68, col = "green", conf.int = "none")
-
+ggsurvplot_combine(list(CH_male_km_68_biased, CH_male_km_68), 
+                   xlim = c(65, 101)) 
 ```
 
