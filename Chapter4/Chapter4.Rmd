@@ -9,26 +9,27 @@ library(tidyverse)
 library(lubridate)
 library(survival)
 library(survminer)
-library(broom)
 library(asaur)
 ```
 
 ### Comparing two groups of survival times  
-Testing the equivalence of two groups is a familiar problem in statistics.   
-Typically we are interested in testing a **null hypothesis** that two population means are equal versus an **alternative** that the means are not equal (for a two-sided test) or that the mean for an experimental treatment is greater than that for a standard treatment (one-sided test).   
+Testing the equivalence of two groups is a familiar problem in statistics. Typically we are interested in testing a **null hypothesis** that two population means are equal versus an **alternative** that the means are not equal (for a two-sided test) or that the mean for an experimental treatment is greater than that for a standard treatment (one-sided test).   
 <br />
-Survival data from biomedical experiments or clinical trials generally doesn’t lend itself to analysis by parametric methods. Thus, we shall construct nonparametric tests of equivalence of two survival functions, $H_0 : S_1(t) = S_0(t)$    
-Typically, $S_1$ and $S_0$ will represent the survival distributions for, respectively, an experimental and a control therapy.   
-Now, a statistical hypothesis test (in the classical hypothesis testing framework) also requires us to specify an alternative hypothesis, and one might at first try to specify a one-sided alternative $H_A:S_1(t)>S_0(t)$ or two-sided alternative $H_A:S_1(t) \neq S_0(t)$.  
-Unfortunately, things aren’t so simple in survival analysis, since the alternative can take a wide range of forms.  
-What if the survival distributions are similar for some values of *t* and differ for others?   
-What if the survival distributions cross?   
-How do we want our test statistic to behave under these different scenarios?     
-One solution is to consider what is called a Lehman alternative, $H_A:S_1(t) = [S_0(t)]^{\psi}$.  
+
++ null hypothesis: $H_0 : S_1(t) = S_0(t)$.      
++ one-sided alternative: $H_A:S_1(t)>S_0(t)$ or two-sided alternative $H_A:S_1(t) \neq S_0(t)$.  
+
+($S_0(t)$: survival distribution control, $S_1(t)$: survival distribution treatment)
+<br />
+Unfortunately, things aren’t so simple in survival analysis, since the alternative can take a wide range of forms. For example...    
+
++ the survival distributions are similar for some values of *t* and differ for others   
++ the survival distributions cross   
+
+How do we want our test statistic to behave under these different scenarios? One solution is to consider what is called a Lehman alternative, $H_A:S_1(t) = [S_0(t)]^{\psi}$.  
 Equivalently, we can view Lehman alternatives in terms of proportional hazards as $h_1(t) = \psi h_0(t)$.  
 Either way we would construct a one sided test as $H_0:\psi = 1$ versus $H_A:\psi <1$, so that under the alternative hypothesis $S_1(t)$ will be uniformly higher than $S_0(t)$ and $h_1(t)$ uniformly lower than $h_0(t)$ (i.e. subjects in Group 1 will have longer survival times than subjects in Group 0)  
 
-<br />
 
 ### log-rank test
 As we shall see, we can construct a test statistic using the ranks of the survival times.  
@@ -37,18 +38,20 @@ While these rank-based tests are similar to the Mann-Whitney test, the presence 
 ![](Fig4.png)
 
 Suppose that the numbers of failures in the control and treatment groups are independent.   
-If one then *conditions* on the margins; that is, if one holds $d_i$, $n_i$, $n_{0i}$, and $n_{1i}$ fixed, then the distribution of $d_{0i}$ follows what is known as a hypergeometric distribution.  
+If one then *conditions* on the margins; that is, if one holds $d_i$, $n_i$, $n_{0i}$, and $n_{1i}$ fixed, then the distribution of $d_{0i}$ follows what is known as a hypergeometric distribution.   
+(control群とtreatment群のハザードが同じなら各群にイベントが起こる確率は超幾何分布に従う)     
 
 $$
-p(d_{0i} | n_{0i}, n_{1i}, d_i) = \frac{\begin{pmatrix}n_{0i}\\d_{0i}\end{pmatrix} \begin{pmatrix}n_{1i}\\d_{1i}\end{pmatrix}}{ \begin{pmatrix}n_i\\d_i\end{pmatrix} }
+p(d_{0i} | n_{0i}, n_{1i}, d_i) = 
+\frac{ {}_{n_{0i}} \mathrm{ C }_{d_{0i}} \cdot {}_{n_{1i}} \mathrm{ C }_{d_1i} }
+{ {}_{n_{i}} \mathrm{ C }_{d_i} }
 $$  
 where  
 
 $$
-\begin{pmatrix}n\\d\end{pmatrix} = \frac{n!}{d!(n-d)!}
+{}_n \mathrm{ C }_d = \frac{n!}{d!(n-d)!}
 $$
-This probability mass function allows one to compute the probability of each possible table with the margins fixed.  
-The mean and variance are given by  
+This probability mass function allows one to compute the probability of each possible table with the margins fixed. The mean and variance are given by     
 
 $$
 e_{0i} = E(d_{0i}) = \frac{n_{0i}d_i}{n_i}
@@ -60,12 +63,15 @@ v_{0i} = var(d_{0i}) = \frac{n_{0i} n_{1i} d_i (n_i - d_i)}{n_{i}^2(n_{i} - 1)}
 $$
 
 We may sum up over all the tables the differences between the observed and expected values to get a linear test statistic $U_0$, and also the sum of the variances $V_0$ as follows, where $D$ is the number of failure times:  
+(イベント発生した各時点の観測値$d_{0i}$と期待値$e_{0i}$の差を足し合わせて統計量$U_0$を出す。control群とtreatment群のハザードが同じなら$d_{0i}$が超幾何分布に従うので$U_0$は0に近い値になるはず。)    
+(注：log-rank testの統計量はイベントの発生順序にしか関係ない。イベントがいつ起こったかや打ち切りに関しては全く無視されるので注意が必要。)      
 
 $$
 U_0 = \displaystyle \sum_{i = 1}^{D} (d_{0i} - e_{0i}) = \sum d_{0i} - \sum e_{0i} \\
 var(U_0) = \sum v_{0i} = V_0
 $$
-Then we may construct a test statistic that is standard normal,  
+
+Then we may construct a test statistic that is standard normal, ($U_0$が$N(0, \sqrt{V_0})$)に従うので...)       
 
 $$
 \frac{U_0}{\sqrt V_0} \sim N(0, 1)
@@ -75,7 +81,8 @@ or equivalently we may use the square of that to get a chi-square random variabl
 $$
 \frac{U_0^2}{V_0} \sim \chi^2(df = 1)
 $$
-This test is known as the log-rank test. We illustrate it’s calculation in the following example.  
+
+This test is known as the log-rank test. We illustrate it’s calculation in the following example.    
 <br />
 
 *Example:* Consider a hypothetical comparative clinical trial with six subjects assigned to either a control or treatment group.    
@@ -90,9 +97,10 @@ In tabular form, with the survival times in increasing order, we have where “C
 
 Since there are four distinct failure times, we may express this data set as a series of four two- by-two tables, where $D$ indicates failure and $\bar{D}$ or "not D", indicates a non-failure, as shown in Fig      
 
-![](Fig4.2.png)  
+<img src = "Fig4.2.png" width = 30%>   
 
-![](Fig4.3.png)  
+<img src = "Fig4.3.png" width = 50%>  
+
 In tabular form, data and calculations of the log-rank test statistic are as follows:  
 We have $U_0 = \sum d_{0i} - \sum e_{0i} = 2 - 1.083 = 0.917$, $V_0 = \sum v_{0i} = 0.6597$, and finally the log-rank statistic $X^2 = U_{0}^2 / V_0 = 1.27$, which compare to a chi-square distribution with one degree of freedom.  
 
@@ -102,7 +110,6 @@ ggplot(tibble(x = 0:5), aes(x = x)) +
   geom_vline(xintercept = 1.27, linetype = "dashed", color = "blue") 
 
 pchisq(1.27, df = 1, lower.tail = FALSE)  # p.value
-
 ```
 
 Using the function `survdiff` in the R `survival` package, we obtain the same value of the chi-square statistic (which is rounded to 1.3 in the last row of the output):  
@@ -110,8 +117,9 @@ Using the function `survdiff` in the R `survival` package, we obtain the same va
 ```{r}
 survdiff(Surv(survtime, censor) ~ group, data = df)
 ```
-The p-value is 0.259, indicating that the group difference is not statistically significant (which is not surprising due to the extremely small sample size in this illustration).  
-Interestingly, the log-rank statistic is identical to a classical test statistic from epidemiology, the Cochran-Mantel-Haenzel test.  
+
+The p-value is 0.259, indicating that the group difference is not statistically significant (which is not surprising due to the extremely small sample size in this illustration).    
+Interestingly, the log-rank statistic is identical to a classical test statistic from epidemiology, the Cochran-Mantel-Haenzel test.     
 <br />
 This is a test for independence of two factors (here, treatment and outcome) adjusted for a potential confounder, and is expressed as series of two-by-two tables with a time-stratified confounding factor.    
 The log-rank test may also be derived from the proportional hazards model, as we will see in the next chapter.   
@@ -121,7 +129,9 @@ An important generalization of this test makes use of a series of $D$ weights $w
 $$
 U_0(w) = \sum w_i (d_i - e_{0i})
 $$
+
 and    
+
 $$
 var(U_0) = \sum w_i^2 v_{0i} = V_0(w)
 $$
@@ -136,7 +146,8 @@ If $\rho = 0$ this test is equivalent to the log-rank test, since then $w_i = 1$
 If $\rho = 1$, we get what is often known as the **Prentice modification** (also known as the **Peto-Peto modification**) of the **Gehan-Wilcoxon test**.  
 
 > The **Gehan test**, an adaptation of the Wilcoxon rank-sum test to censored data, is equivalent to a weighted rank test, with weights $w_i = n_i$, that is, each term is weighted by the number of subjects at risk at that time.  
-The **Prentice modification** of the Gehan test uses weights given by $w_i = n\hat{S}(t)$. These weights are similar to those of the Gehan test, but are more stable in small samples.
+The **Prentice modification** of the Gehan test uses weights given by $w_i = n\hat{S}(t)$. These weights are similar to those of the Gehan test, but are more stable in small samples.    
+The **Fleming-Harrington test**: $W_t = S(t)^{\rho} \{ 1 - S(t) \}^{r}$、これは任意に特定期間の重み付けはできる。ただ重み付けのパラメーター設定は悩ましい...     
 
 The effect of this test is then to place higher weight on earlier survival differences. The following example illustrates this.  
 
@@ -149,37 +160,40 @@ The data consist of, for each patient, the stage, classified as “LA” (locall
 ```{r}
 head(pancreatic)
 ```
+
 Patient #4, for example, died with no recorded progression (shown using the missing value indicator “NA”), so that person’s PFS is time to death.  
 For the five other patients in this list the PFS is time to the date of progression.   
+
 ```{r}
 (pancreatic_tbl <- pancreatic %>% 
    tbl_df() %>%  
    # change factor to date in "onstudy", "progression" and "death"
-   mutate(onstudy = mdy(parse_character(onstudy)), 
-          progression = mdy(parse_character(progression)), 
-          death = mdy(parse_character(death))) %>% 
+   mutate(onstudy = mdy(as.character(onstudy)), 
+          progression = mdy(as.character(progression)), 
+          death = mdy(as.character(death))) %>% 
    # calculate PFS and OS (months)
-   mutate(PFS = parse_number(if_else(!is.na(progression), progression - onstudy, death - onstudy)) / 30, 
-          OS = parse_number(death - onstudy) / 30)
+   mutate(PFS = as.numeric(if_else(!is.na(progression), progression - onstudy, death - onstudy)) / 30, 
+          OS = as.numeric(death - onstudy) / 30)
  )
 
 ```
 
 The log-rank test may be fitted to this data as follows:  
+
 ```{r}
 # rho = 0, do log-rank test
 survdiff(Surv(PFS) ~ stage, rho = 0, data = pancreatic_tbl)
 ```
-Here, the number of patients in each group equals the corresponding observed number of events, since there is no censoring.  
+
 The value of chi-square statistics is 2.2 with 1 degree of freedom, and the p-value is 0.134, which is not statistically significant. Here, we specified that $\rho = 0$. Since this is the default value, it is not necessary.    
-If we use the Prentice modification, we must specify that $\rho = 1$:   
+If we use the Prentice modification, we must specify that $\rho = 1$:    
 ```{r}
 # rho = 1, Prentice modification
 survdiff(Surv(PFS) ~ stage, rho = 1, data = pancreatic_tbl)
 ```
 We obtain a p-value of 0.0299, which is statistically significant at the 5 % level. What changed is that this version of the test places *higher weight on earlier survival times*.     
 ```{r}
-ggsurvplot(survfit(Surv(PFS) ~ stage, data = pancreatic_tbl), 
+ggsurvplot(surv_fit(Surv(PFS) ~ stage, data = pancreatic_tbl), 
            legend.labs = c("Locally Advanced", "Metastasis"))
 ```   
   
@@ -187,23 +201,22 @@ From this plot, we see that indeed the metastatic group shows an early survival 
 The reason for the difference is that these two tests, with $\rho = 0$ or $1$, are optimized for different alternatives.    
 We will return to this issue when we discuss time dependent covariates and non-proportional hazards.  
 
-<br />  
 
 ### Stratified tests  
 If there is a need to compare two groups while adjusting for another covariate, there are two approaches one can use.  
-One is to include the other covariate (or multiple covariates) as regression terms for the hazard function, an approach we will discuss n the next chapter.    
-Alternatively, if the covariate we are adjusting for is categorical with a small number of levels $G$, we may construct a **stratified log-rank test**.  
+One is to include the other covariate (or multiple covariates) as regression terms for the hazard function, an approach we will discuss in the next chapter (Cox regression model).    
+Alternatively, if the covariate we are adjusting for is categorical with a small number of levels $G$, we may construct a **stratified log-rank test**.     
 This is a test of the null hypothesis $H_0 : h_{0j}(t) = h_{1j}(t)$ for $j = 1, 2, \cdots, G$.    
-Essentially, for each level of the second variable, we compute a score statistic $U_{0g}$ and $V_{0g}$, where $g = 1, 2, \cdots, G$ is the group indicator.    
+Essentially, for each level of the second variable, we compute a score statistic $U_{0g}$ and $V_{0g}$, where $g = 1, 2, \cdots, G$ is the group indicator.      
 <br /> 
 The test statistic is given by  
 
 $$
 X^2 = \frac{(\sum_{g = 1}^{G} U_{0g})^2}{\sum_{g = 1}^{G} V_{0g}^2} \sim \chi^2(df = 1)
 $$
-which (as for the unstratified log-rank statistic) may be compared to a chi-square distribution with one degree of freedom.  
+which (as for the unstratified log-rank statistic) may be compared to a chi-square distribution with one degree of freedom.    
+(covariateを元にグループ分け、それぞれのグループでの$U_{0g}$, $V_{0g}$を求めてその総和を出す)     
 Treatment center, age group, or gender are examples of variables on which we might need to stratify.    
-<br />
 
 *Example:*   
 As an example, let us consider the data set `pharmacoSmoking` in the `asaur` package, where the primary goal is to compare the time to relapse (defined in this study as return to smoking) between two treatment groups.   
@@ -215,7 +228,6 @@ head(pharmacoSmoking)
 
 # log-rank test ttr(time to relapse) ~ grp(patchOnly vs combination)
 survdiff(Surv(ttr, relapse) ~ grp, data = pharmacoSmoking)
-
 ```
   
 If we are concerned that the group comparison may differ by age, we may define a categorical variable, "ageGroup2", that divides the subjects into those 49 and under and those 50 and above. We may summarize this variable as follows:    
@@ -230,7 +242,6 @@ The variable “ageGroup2” has two levels, with 66 patients in the 21-49 age g
 ```{r}
 # stratified log-rank test by "ageGroup2"
 survdiff(Surv(ttr, relapse) ~ grp + strata(ageGroup2), data = pharmacoSmoking)
-
 ```
 The chi-square test in this case differs only slightly from the unadjusted value, indicating that it was not necessary to stratify on this variable.    
 In the next example we illustrate the impact of a confounder.   
@@ -245,6 +256,8 @@ Next, we (1) set a “seed” for the random variable generator, so that this ex
 
 ```{r}
 # make parameter list
+# hazardはwild < mutant, treatment < control
+# 症例数はcontrol群よりtreatment群で予後の悪いmutatntが多い
 control_mutant <- list(rate = 0.03, rep = 25, treat = "control", genotype = "mutant")
 treat_mutant <- list(rate = 0.03 * 0.55, rep = 125, treat = "treat", genotype = "mutant")
 control_wild <- list(rate = 0.03 * 0.2, rep = 125, treat = "control", genotype = "wild")
@@ -264,30 +277,35 @@ simulated_df <- map(lst, ~ tibble(time = rexp(.$rep, rate = .$rate),  # survival
 
 # check the simulated_df
 head(simulated_df)
-
 ```
 
 The survival plots comparing the two treatments appears to show that the treatment reduces survival.   
-The log-rank test appears to confirm this with a very strong p-value:   
+The log-rank test appears to confirm this with a very strong p-value:    
+(control群がtreatment群より統計学的有意に予後良い？？？、これは本来と異なる結果)     
 
 ```{r}
 # plot k-m curv
-plot(survfit(Surv(time, status) ~ treat, data = simulated_df), col = c("red", "blue"))
-legend("topright", legend = c("control", "treat"), col = c("red", "blue"), lwd = 2)
+ggsurvplot(surv_fit(Surv(time, status) ~ treat, data = simulated_df), 
+           palette = c("red", "blue"), 
+           legend.lab = c("control", "treat"))
 
 # log-rank test
 survdiff(Surv(time, status) ~ treat, data = simulated_df)
-
 ```
+
 However, when we plot the survival curves comparing treatment to control separately for the mutant and wild type patients, we see that within each genotype the treatment is actually superior to the control.    
+(しかし、下図のようにmutantとwildタイプ別に見るとシミュレーション通りcontrol < treatmentとなる。予後の悪いmutant群がtreatment群で多かったため、階層化せずに解析するとcontrol群の方が予後がいいという結果になってしまった。)    
 We can confirm this using a stratified log-rank test, which shows the difference is highly significant:    
 
 ```{r}
 # plot k-m curv stratified by genotype
-plot(survfit(Surv(time, status) ~ treat + strata(genotype), data = simulated_df), 
-     col = c("red", "red", "blue", "blue"), lty = c(1, 2, 1, 2))
-legend("topright", legend = c("control mutant", "treat mutatnt", "control wild", "treat wild"), 
-       col = c("red", "blue", "red", "blue"), lwd = 2, lty = c(1, 1, 2, 2))
+ggsurvplot(survfit(Surv(time, status) ~ treat + strata(genotype), data = simulated_df), 
+           palette = c("red", "red", "blue", "blue"), 
+           linetype = c(1, 4, 1, 4), 
+           legend.lab = c("control-mutant", 
+                          "control-wild", 
+                          "treat-mutatnt", 
+                          "treat-wild"))
 
 # log-rank test stratified by genotype
 survdiff(Surv(time, status) ~ treat + strata(genotype), data = simulated_df)
@@ -296,16 +314,18 @@ survdiff(Surv(time, status) ~ treat + strata(genotype), data = simulated_df)
 simulated_df %>% 
   group_by(treat) %>% 
   summarise(mutant = sum(genotype == "mutant"), wild = sum(genotype == "wild"))
-
 ```
-The output from the `survdiff` function does not make it clear which treatment is the superior one, so it is important to also consult the plot to ascertain the directional effect of treatment.   
-The explanation for the confounding is that (1) **the treatment improves survival compared to the control**, (2) **patients carrying the wild type form of the gene have better survival than do patients carrying the mutation**, and (3) **there are more mutation-carrying patients in the treatment group than in the control group**, whereas the reverse is true for wild type patients.    
-
-<br />
-
+The output from the `survdiff` function does not make it clear which treatment is the superior one, so it is important to also consult the plot to ascertain the directional effect of treatment.    
+(log-rankは有意ありなしの判定のみでどちらが上かは判断していない、plotを書いたりして判断すること)   
+  
+The explanation for the confounding is that   
+(1) **the treatment improves survival compared to the control**  
+(2) **patients carrying the wild type form of the gene have better survival than do patients carrying the mutation**    
+(3) **there are more mutation-carrying patients in the treatment group than in the control group**, whereas the reverse is true for wild type patients.    
+     
 Confounding of this type can easily arise in an observational study. For example, the frequency of mutants in one ethnic group may differ significantly from the frequency in the other, and at the same time one of the groups may have had more access to the experimental therapy than did the other.   
 If the confounding factor can be observed, then it can be adjusted for, as we have seen.  
-
+(上述のような例はよく起きるので交絡因子が観察されるならちゃんと階層化等による調整を行うこと！、まあ観察されないこともあるから厄介だが...)
 <br />
 <br />
 
@@ -320,8 +340,7 @@ survdiff(Surv(ttr, relapse) ~ grp, data = pharmacoSmoking)
 survdiff(Surv(ttr, relapse) ~ grp, data = pharmacoSmoking, rho = 1)    # It is not great diffrent from log-rank
 
 # k-m plot show relapse time has not bias within begging or end of study
-ggsurvplot(survfit(Surv(ttr, relapse) ~ grp, data = pharmacoSmoking))
-
+ggsurvplot(surv_fit(Surv(ttr, relapse) ~ grp, data = pharmacoSmoking))
 ```
 
 2. Again using the pharmacoSmoking data, carry out a log-rank test comparing the two treatments stratifying on employment status.      
@@ -334,10 +353,16 @@ survdiff(Surv(ttr, relapse) ~ grp, data = pharmacoSmoking)
 survdiff(Surv(ttr, relapse) ~ grp + strata(employment), data = pharmacoSmoking)
 
 # k-m plot by stratified by employment
-survfit(Surv(ttr, relapse) ~ grp + strata(employment), data = pharmacoSmoking) %>% 
+surv_fit(Surv(ttr, relapse) ~ grp + strata(employment), data = pharmacoSmoking) %>% 
   ggsurvplot(legend.labs = c("comb_ft", "comb_other", "comb_pt", 
-                             "patch_ft", "patch_other", "patch_pt"))
+                             "patch_ft", "patch_other", "patch_pt"), 
+             linetype = c(1, 3, 4, 1, 3, 4), 
+             palette = c("red", "red", "red", "blue", "blue", "blue"))
 
+# k-m plot facet.by employment
+surv_fit(Surv(ttr, relapse) ~ grp , data = pharmacoSmoking) %>% 
+  ggsurvplot_facet(pharmacoSmoking, facet.by = "employment", 
+                   palette = c("red", "blue"))
 ```
 
 3. Using the `pancreatic` data set, which has no censored observations, compare the two groups using a Wilcoxon rank-sum test, using the “wilcox.test” function in base R.   
@@ -346,8 +371,9 @@ Compare your results to those from the log-rank and Prentice-modified Gehan test
 ```{r}
 wilcox.test(PFS ~ stage, data = pancreatic_tbl)
 
-survdiff(Surv(PFS) ~ stage, data = pancreatic_tbl, rho = 1)
+survdiff(Surv(PFS) ~ stage, data = pancreatic_tbl, rho = 0)
 
+survdiff(Surv(PFS) ~ stage, data = pancreatic_tbl, rho = 1)
 ```
 
 4. Again using the `pancreatic` data set, compare the two groups using overall survival as the outcome, using both the log-rank test and the Prentice modification of the Gehan test.   
