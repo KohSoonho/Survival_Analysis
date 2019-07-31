@@ -14,25 +14,31 @@ library(asaur)
 
 ### Assessing goodness of fit using residuals    
 The use of residuals for model checking has been well-developed in linear regression theory. The residuals are plotted versus some quantity, such as a covariate value, and the observed pattern is used to diagnose possible problems with the fitted model. Some residuals have the additional property of not only indicating problems but also suggesting remedies. That is the pattern of the plotted residuals may suggest an alternative model that fits the data better.    
-<br />
-
 Many of these residuals have been generalized to survival analysis. In addition, the fact that survival data evolves over time, and requires special assumptions such as proportional hazards, makes it necessary to develop additional diagnostic residual methods.    
+(残差プロットでモデルの診断およびより適切なモデルの推測を行うことができる)     
 <br />
-
+    
 #### Martingale and deviance residuals    
-An important tool for assessing the goodness of fit of a model is to compare the censoring indicator (0 for censored, 1 for death) for each subject to the expected value of that indicator under the proportional hazards Cox model.    
-If there are no time dependent covariates and if the survival times are right-censored, this is given by    
+An important tool for assessing the goodness of fit of a model is to compare the censoring indicator (0 for censored, 1 for death) for each subject to the expected value of that indicator under the proportional hazards Cox model. If there are no time dependent covariates and if the survival times are right-censored, this is given by    
 
 $$
 m_i = \delta_i - \hat{H_0}(t_i) \exp(z'_i \hat{\beta})
 $$
 
-These residuals, which originate from the counting process theory underlying the Cox proportional hazards model, sum to 0, range in value from $-\infty$ to a maximum of 1, and each has an expected value of zero.    
-The residual is essentially the difference between the observed value (1 or 0) of the censoring indicator and its expected value under a particular Cox model.    
-The asymmetry of the residuals might appear to be a disadvantage, but Therneau and Grambsch, in Chap. 5, show that a plot of these residuals versus the covariate $z$ can reveal not only discrepancies in the model but also the actual functional form of this covariate.    
-**Martingale residuals** may be used much as residuals that the reader may be familiar with from linear regression.    
-<br />
-
+These residuals, which originate from the counting process theory underlying the Cox proportional hazards model, **sum to 0**, **range in value from $-\infty$ to a maximum of 1**, and **each has an expected value of zero**. **The residual is essentially the difference between the observed value (1 or 0) of the censoring indicator and its expected value under a particular Cox model.**    
+     
++ Martingale残差の特徴   
+  + $-\inf<r_{m_i}<1$   
+  + $\displaystyle \sum^{n}_{i=1}r_{m_i}=0$
+  + $E[r_{m_i}]=0$
+  + $r_{mi}$は区間$(o,t_i)$に置ける$i$番目の被験者に対する観測した死亡数(0 or 1)と当てはめたモデルに基づいて推定された死亡数の期待値との差と解釈できる   
+    + $r_{m_i} \approx 1$ -> 予測よりも早く死亡(predict > observation)  
+    + $r_{m_i} \approx -\infty$ -> 予測よりも長生き(predict < observation)  
+    + $r_{m_i} = 0$ -> predict = observation    
+   
+The asymmetry of the residuals might appear to be a disadvantage, but Therneau and Grambsch, in Chap. 5, show that a plot of these residuals versus the covariate $z$ can reveal not only discrepancies in the model but also the actual functional form of this covariate. **Martingale residuals** may be used much as residuals that the reader may be familiar with from linear regression.    
+(Martingale残差は左右非対称でやや使いにくそうだが、残差分析によりモデルの妥当性および共変量の関数形の検証にも使うことができる！)     
+      
 However, unlike those, the sum of squares of Martingale residuals cannot be used as a measure of goodness of fit. The **“deviance” residual** is an alternative that does have this property.    
 It may defined in terms of the martingale residual as follows:     
 
@@ -42,14 +48,20 @@ $$
 
 These residuals are symmetrically distributed with expected value 0 (if the fitted model is correct).    
 **The sum of squares of these residuals is the value of the likelihood ratio test, which is analogous to the deviance from generalized linear model theory.**    
+
++ Deviance残差の特徴   
+  + $-\infty<r_{d_i}<\infty$     
+  + $E[r_{d_i}]=0$
+      
+$r_{m_i}$の性質を残しつつ左右対称の分布へ。ただcensorの扱いが代わり、censor時はより強く負へ評価する。   
+     
 While the properties of deviance residuals might seem preferable to those of martingale residuals, only the latter have the property of showing us the functional form of a covariate. For this reason, in practice, the martingale residuals are more useful.      
-
-*Example 1:*   
-Consider the `pharmacoSmoking` dataset, and a fit of the “null” Cox proportional hazards model.    
-A null model is one with no fitted covariates. There is still a partial likelihood, and the model produces martingale residuals which take the form $m_i = \delta_i - \hat{H_0}(t_i) \exp(z' \beta)$.    
-We may plot these against continuous predictors to get a preliminary assessment of which of these predictors should be in the model, and what form they should take.   
 <br />
-
+    
+*Example 1:*   
+Consider the `pharmacoSmoking` dataset, and a fit of the “null” Cox proportional hazards model. A null model is one with no fitted covariates. There is still a partial likelihood, and the model produces martingale residuals which take the form $m_i = \delta_i - \hat{H_0}(t_i) \exp(z' \beta)$. We may plot these against continuous predictors to get a preliminary assessment of which of these predictors should be in the model, and what form they should take.   
+(null-modelのMartingale残差と共変量のplotを書くと線形性の評価や関数形の推測ができる！)    
+      
 We first read in the data and truncate the variable “priorAttempts” at 20, since recorded values of this variable that exceed 20 are not likely to be correct,     
 
 ```{r}
@@ -61,12 +73,15 @@ prior_attempts_T <- pharmacoSmoking %>%
 We may fit the null model and obtain these residuals as follows:     
 
 ```{r}
+# create null model
 result_null_coxph <- coxph(Surv(ttr, relapse) ~ 1, prior_attempts_T)
+
+# extract Martingale residuals of null model
 resid_null_coxph <- residuals(result_null_coxph, type = "martingale")
 ```
 
-We next assess the potential relationship of survival to age, prior attempts at quitting, and longest prior period without smoking.     
-We plot these null model residuals versus each of these variables and also versus log transformations of these variables.    
+We next assess the potential relationship of survival to age, prior attempts at quitting, and longest prior period without smoking. We plot these null model residuals versus each of these variables and also versus log transformations of these variables.    
+     
 In the following, since the smallest value of “prior_attempts_T” and “longestNoSmoke” is zero, we add one to each before taking the log transformation.    
 We fit a “loess” smooth curve through each set of residuals to better assess the shapes of the relationships, using the `loess` function.     
 In order to also get 95 % confidence intervals for these smooth curves, we use the function `smoothSEcurve`, a simple plotting function that is defined in the appendix.   
@@ -109,7 +124,12 @@ title("Martingale residuals\nversus log age")
 plot(resid_null_coxph ~ prior_attempts_T$priorAttemptsT)
 smoothSEcurve(resid_null_coxph, prior_attempts_T$priorAttemptsT)
 title("Martingale residuals versus\nprior attempts")
+```
 
+In each case, the untransformed variables show considerable non-linearity. Note in particular the first plot, versus age, that shows the same non-linear relationship we modeled directly (with `pspline`) in Chapter 6. This illustrates that the use of martingale residuals with a null model is an alternative way to identify the form of a non-linear relationship.    
+(Martingale残差からこれらの共変量はCoxモデルにおいて線形性が成り立つとは考えにくい)    
+   
+```{r}
 # plot log(priorAttemptsT + 1) vs Martingale resid
 plot(resid_null_coxph ~ log(prior_attempts_T$priorAttemptsT + 1))
 smoothSEcurve(resid_null_coxph, log(prior_attempts_T$priorAttemptsT + 1))
@@ -125,15 +145,15 @@ plot(resid_null_coxph ~ log(prior_attempts_T$longestNoSmoke + 1))
 smoothSEcurve(resid_null_coxph, log(prior_attempts_T$longestNoSmoke + 1))
 title("Martingale residuals versus\nlog of longest period without smoking")
 ```
-
-In each case, the untransformed variables show considerable non-linearity.    
-Note in particular the first plot, versus age, that shows the same non-linear relationship we modeled directly (with `pspline`) in Chapter 6. This illustrates that the use of martingale residuals with a null model is an alternative way to identify the form of a non-linear relationship.    
+   
 The log-transformation of “LongestNoSmoke” produces a curve that will be easier to adjust for using linear models, whereas with “age” and “priorAttempts”, the log-transformation doesn’t appear to help.     
+(対数変換すると"LongestNoSmoke"はだいぶ線形性になってきた、ただ"age"と"priorAttempts"はまだ線形性とは言いづらい)   
 <br />
 
 As in the previous chapter, we use the `step` function to identify a model with low AIC:    
 
 ```{r}
+# create model with low AIC by step
 result_grp_coxph <- coxph(Surv(ttr, relapse) ~ grp, data = prior_attempts_T)
 result_step <- step(result_grp_coxph, scope = list(upper = ~ grp + gender + race + 
                                                      employment + yearsSmoking + levelSmoking + 
@@ -146,11 +166,11 @@ The resulting model is as follows:
 ```{r}
 result_step
 ```
-<br />
-
+     
 We may now assess the final model by creating residuals and then plotting them versus the final selected predictors,   
 
 ```{r}
+# extract Martingale residuals from this low AIC model
 resid_step_coxph <- residuals(result_step, type = "martingale")
 ```
 
@@ -170,18 +190,19 @@ title("Martingale residuals\nversus employment")
 ```
 
 The results, shown in Fig, show that the residuals treatment group and employment are evenly distributed over the values of the covariates. The variable “age” still shows some possible deviation, but it is much improved over the plot for the null model.   
+("grp"および"employment"とmodelのMartingale残差に傾向はない。"age"はやや傾向あるかも知らんがnull-modelに比べるとだいぶ改善あり。)     
 <br />
 
 #### Case deletion residuals   
 Some subjects may have an especially large influence on the parameter estimates. Since some such influential subjects may indicate a problem with the data, it is helpful for the data analyst to have tools that can identify those subjects.    
-**Case deletion residuals** (also called **jackknife residuals**) serve this purpose.    
-For each subject, a case deletion residual is the difference in the value of the coefficient using all of the data and its value when that subject is deleted from the data set.   
-<br />
-
-Using the `pharmacoSmoking` data set, we illustrate computation of these residuals using “age” as a predictor.     
+**Case deletion residuals** (also called **jackknife residuals**) serve this purpose. For each subject, a case deletion residual is the difference in the value of the coefficient using all of the data and its value when that subject is deleted from the data set.   
+(全データで作ったモデル vs １つデータを取り除いて作ったモデルの両者の係数を比較して、係数決定に大きな影響を及ぼしているような外れ値がないか確認する)     
+      
+Using the `pharmacoSmoking` data set, we illustrate computation of these residuals using “age” as a predictor.  
 First, we find the coefficient for age (the fourth coefficient) using all the data:    
 
 ```{r}
+# create cox model and extract coeff of age
 result_coxph_all <- coxph(Surv(ttr, relapse) ~ grp + employment + age, data = pharmacoSmoking)
 (coef_all <- result_coxph_all$coefficients[4])
 ```
@@ -214,8 +235,7 @@ plot(jackbeta_vec ~ index_obs, type = "h",
 abline(h = 0)
 ```
 
-The plot is shown here. There we see that no single patient changes the estimate of the “age” coefficient by more than 0.003, which is less than 10 % of the value of that coefficient.    
-Still, we see that patients 46 and 68 have the most influence over the parameter estimate for age, and one may check these data points to ensure that there are no errors in recording the data.    
+The plot is shown here. There we see that no single patient changes the estimate of the “age” coefficient by more than 0.003, which is less than 10 % of the value of that coefficient. Still, we see that patients 46 and 68 have the most influence over the parameter estimate for age, and one may check these data points to ensure that there are no errors in recording the data.    
 
 ```{r}
 df_jackbeta <- tibble(id = index_obs, 
@@ -228,8 +248,7 @@ df_jackbeta %>%
 A more convenient way to obtain case deletion residuals is using the `residuals` function with “type = ‘dfbeta’ ”.    
 These residuals are approximations to case-deletion residuals that require less numerical computation by eliminating all but one interaction in the partial likelihood maximization.    
 The simplest way to compute such as residual is exactly as outlined above for case-deletion residuals, but one starts the search for a maximum partial likelihood at $\beta = 0$ and then only permit a single iteration of the `coxph` function for each subject.    
-<br />
-
+     
 Since the first iteration of the coxph function yields an estimate of the coefficient that is near the final value, these residuals should be nearly as effective at identifying influential subjects as the case deletion residuals.    
 These may be computed using the `residuals` function as follows:    
 
@@ -243,11 +262,9 @@ plot(resid ~ index, data = df_dfbeta,
 abline(h = 0)
 ```
 
-The resulting dfbeta residuals plot is nearly identical to that before plot.    
-While the reduction in computation time is of minimal value in most applications, using the `residuals` function to obtain dfbeta residuals has the advantage that it is slightly easier to use it to produce multiple plots for all of the coefficients—one only need select the corresponding element of “resid_dfbeta” for each coefficient in the model.    
-A modification of the dfbeta residual is to standardize it by an estimate of its standard error.   
-In the residuals function, we obtain these residuals exactly as above, but using the option “type = ‘dfbetas’ ”. In this example this refinement makes no perceptible difference in which cases are found to be influential (see Exercise 1), but potentially could be of value with other data sets.   
-<br />
+The resulting dfbeta residuals plot is nearly identical to that before plot. While the reduction in computation time is of minimal value in most applications, using the `residuals` function to obtain dfbeta residuals has the advantage that it is slightly easier to use it to produce multiple plots for all of the coefficients—one only need select the corresponding element of “resid_dfbeta” for each coefficient in the model.    
+     
+A modification of the dfbeta residual is to standardize it by an estimate of its standard error. In the residuals function, we obtain these residuals exactly as above, but using the option “type = ‘dfbetas’ ”. In this example this refinement makes no perceptible difference in which cases are found to be influential (see Exercise 1), but potentially could be of value with other data sets.   
 <br />
 
 ### Checking the Proportion Hazards Assumption   
